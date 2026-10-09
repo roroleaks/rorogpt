@@ -76,11 +76,11 @@ async function runTests() {
     assert(data.success === true, "/api/models returned success: true");
 
     // Verify Groq, Gemini, Cerebras, Local Ollama models are present
-    const hasGroq70b = data.models.some(m => m.id === "llama-3.3-70b-versatile" && m.provider === "groq");
-    assert(hasGroq70b, "100% Free Groq model 'llama-3.3-70b-versatile' (500 tok/s) is present");
+    const hasGroqQwen = data.models.some(m => m.id === "qwen/qwen3.8-27b" && m.provider === "groq");
+    assert(hasGroqQwen, "100% Free Groq model 'qwen/qwen3.8-27b' (500 tok/s) is present");
 
-    const hasGroqInstant = data.models.some(m => m.id === "llama-3.1-8b-instant" && m.provider === "groq");
-    assert(hasGroqInstant, "100% Free Groq instant model 'llama-3.1-8b-instant' (800 tok/s) is present");
+    const hasGroqGptOss = data.models.some(m => m.id === "openai/gpt-oss-120b" && m.provider === "groq");
+    assert(hasGroqGptOss, "100% Free Groq flagship model 'openai/gpt-oss-120b' (350 tok/s) is present");
 
     const hasGemini = data.models.some(m => m.id === "gemini-2.0-flash" && m.provider === "gemini");
     assert(hasGemini, "100% Free Google model 'gemini-2.0-flash' is present");
@@ -125,14 +125,14 @@ async function runTests() {
     const res = await fetch(`${baseUrl}/api/chat`, { method: "GET" });
     assert(res.status === 405, "GET /api/chat returns HTTP 405 Method Not Allowed");
 
-    const noKeyRes = await fetch(`${baseUrl}/api/chat`, {
+    const chatRes = await fetch(`${baseUrl}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: [{ role: "user", content: "hi" }] })
+      body: JSON.stringify({ messages: [{ role: "user", content: "say hello in 2 words" }] })
     });
-    assert(noKeyRes.status === 401, "POST /api/chat without key prompts user with free key instructions (HTTP 401)");
-    const noKeyData = await noKeyRes.json();
-    assert(noKeyData.error.includes("Groq") && noKeyData.error.includes("Google AI Studio"), "Helpful guidance points user to 100% free keys");
+    assert(chatRes.status === 200, "POST /api/chat streams with configured Groq key (HTTP 200 SSE)");
+    const contentType = chatRes.headers.get("content-type");
+    assert(contentType && contentType.includes("text/event-stream"), "Chat response is text/event-stream (SSE)");
   } catch (err) {
     assert(false, `GET /api/chat method check failed: ${err.message}`);
   }

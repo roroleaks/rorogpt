@@ -4,59 +4,48 @@
 export const FREE_MODELS_BY_PROVIDER = {
   groq: [
     {
-      id: "llama-3.3-70b-versatile",
-      name: "Llama 3.3 70B (Groq)",
+      id: "qwen/qwen3.8-27b",
+      name: "Qwen 3.8 27B (Groq)",
       provider: "groq",
-      speed: "⚡ 500 tok/s (~0.3s)",
-      badge: "★ Best & Fastest",
-      color: "#f59e0b",
-      icon: "⚡",
-      context: "128K",
-      description: "100% Free on Groq. Meta's flagship 70B intelligence running on ultra-fast LPU hardware with zero wait time."
-    },
-    {
-      id: "llama-3.1-8b-instant",
-      name: "Llama 3.1 8B (Groq)",
-      provider: "groq",
-      speed: "🚀 800 tok/s (Instant)",
-      badge: "Instant 0.2s",
+      speed: "⚡ 500 tok/s (~0.2s)",
+      badge: "★ Best & Instant",
       color: "#10b981",
       icon: "🚀",
-      context: "128K",
-      description: "100% Free on Groq. Instant 8B model. Generates full answers in 0.2 seconds flat."
+      context: "131K",
+      description: "100% Free on Groq. Alibaba's top 27B open model running on ultra-fast Groq LPUs. Lightning-fast responses with zero delay."
     },
     {
-      id: "deepseek-r1-distill-llama-70b",
-      name: "DeepSeek R1 70B (Groq)",
+      id: "openai/gpt-oss-120b",
+      name: "GPT OSS 120B (Groq)",
       provider: "groq",
-      speed: "🧠 350 tok/s (~2-4s)",
-      badge: "Fast Reasoning",
+      speed: "🧠 350 tok/s (~0.4s)",
+      badge: "Flagship 120B",
+      color: "#f59e0b",
+      icon: "⚡",
+      context: "131K",
+      description: "100% Free on Groq. Massive 120B reasoning model with 131K context window and step-by-step thinking."
+    },
+    {
+      id: "openai/gpt-oss-20b",
+      name: "GPT OSS 20B (Groq)",
+      provider: "groq",
+      speed: "⚡ 700 tok/s (Instant)",
+      badge: "Instant 0.2s",
       color: "#3b82f6",
-      icon: "🧠",
-      context: "128K",
-      description: "100% Free on Groq. Deep reasoning model with step-by-step thinking in 2-4 seconds instead of 2 minutes."
+      icon: "⚡",
+      context: "131K",
+      description: "100% Free on Groq. Ultra-fast 20B model for coding, writing, and instant answers."
     },
     {
-      id: "gemma2-9b-it",
-      name: "Gemma 2 9B (Groq)",
+      id: "allam-2-7b",
+      name: "ALLaM 2 7B (Groq)",
       provider: "groq",
-      speed: "⚡ 650 tok/s (~0.3s)",
-      badge: "Google Gemma",
+      speed: "⚡ 600 tok/s (~0.2s)",
+      badge: "Multilingual",
       color: "#06b6d4",
       icon: "✨",
-      context: "8K",
-      description: "100% Free on Groq. Google's efficient, precise instruction model."
-    },
-    {
-      id: "mixtral-8x7b-32768",
-      name: "Mixtral 8x7B (Groq)",
-      provider: "groq",
-      speed: "🌪️ 450 tok/s (~0.4s)",
-      badge: "MoE 32K",
-      color: "#ec4899",
-      icon: "🌪️",
-      context: "32K",
-      description: "100% Free on Groq. Mistral's mixture-of-experts model for versatile instruction following."
+      context: "4K",
+      description: "100% Free on Groq. Specialized multilingual instruction model with exceptional Arabic & English fluency."
     }
   ],
   gemini: [
@@ -157,7 +146,7 @@ export default async function handler(req, res) {
       process.env.GEMINI_API_KEY ||
       process.env.CEREBRAS_API_KEY
     ),
-    defaultModel: "llama-3.3-70b-versatile",
+    defaultModel: "qwen/qwen3.8-27b",
     providers: [
       {
         id: "groq",

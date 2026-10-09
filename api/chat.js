@@ -25,7 +25,7 @@ export default async function handler(req, res) {
 
   const {
     messages = [],
-    model = "llama-3.3-70b-versatile",
+    model = "qwen/qwen3.8-27b",
     systemPrompt = "",
     temperature = 0.7,
     apiKey: clientApiKey = "",
@@ -75,12 +75,23 @@ export default async function handler(req, res) {
     if (!targetModel.startsWith("gemini-")) {
       targetModel = "gemini-2.0-flash";
     }
-  } else if (finalApiKey.startsWith("gsk_") || model.includes("versatile") || model.includes("instant") || model.includes("distill") || model.includes("gemma2") || model.includes("mixtral")) {
+  } else if (finalApiKey.startsWith("gsk_") || model.includes("qwen") || model.includes("gpt-oss") || model.includes("allam") || model.includes("llama") || model.includes("versatile") || model.includes("instant") || model.includes("distill")) {
     // Groq (100% Free & Fastest - 500+ tok/s)
     endpoint = "https://api.groq.com/openai/v1/chat/completions";
     targetModel = model.replace(":free", "");
-    if (!targetModel.includes("llama") && !targetModel.includes("gemma") && !targetModel.includes("mixtral") && !targetModel.includes("deepseek")) {
-      targetModel = "llama-3.3-70b-versatile";
+
+    // Robust model translation to Groq's active models (prevents "model does not exist" errors)
+    if (targetModel.includes("120b") || targetModel.includes("r1") || targetModel.includes("70b")) {
+      targetModel = "openai/gpt-oss-120b";
+    } else if (targetModel.includes("20b")) {
+      targetModel = "openai/gpt-oss-20b";
+    } else if (targetModel.includes("allam")) {
+      targetModel = "allam-2-7b";
+    } else if (targetModel.includes("qwen")) {
+      targetModel = "qwen/qwen3.8-27b";
+    } else {
+      // Default fallback for any deprecated llama-3.1/3.3 model on Groq
+      targetModel = "qwen/qwen3.8-27b";
     }
   } else if (finalApiKey.startsWith("sk-or-")) {
     // OpenRouter fallback (warns if credits needed)

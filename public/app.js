@@ -3,13 +3,19 @@
  * Powered by 100% Free AI Models (Groq, Gemini, Cerebras, Local Ollama) & Vercel
  */
 
-// Default Configuration: 100% Free & Fastest Model by Default (Groq Llama 3.3 70B or Gemini Flash)
-const DEFAULT_CHAT_MODEL = "llama-3.3-70b-versatile";
+// Default Configuration: 100% Free & Fastest Model by Default (Groq Qwen 3.8 27B or GPT OSS 120B)
+const DEFAULT_CHAT_MODEL = "qwen/qwen3.8-27b";
 const DEFAULT_EMBEDDING_MODEL = "free-fast-vector";
+
+let initialModel = localStorage.getItem("roro_active_model");
+if (!initialModel || initialModel.includes("llama-3.1") || initialModel.includes("llama-3.3")) {
+  initialModel = DEFAULT_CHAT_MODEL;
+  localStorage.setItem("roro_active_model", DEFAULT_CHAT_MODEL);
+}
 
 // State
 const state = {
-  activeModel: localStorage.getItem("roro_active_model") || DEFAULT_CHAT_MODEL,
+  activeModel: initialModel,
   activeEmbeddingModel: localStorage.getItem("roro_active_embed_model") || DEFAULT_EMBEDDING_MODEL,
   apiKey: localStorage.getItem("roro_api_key") || "",
   systemPrompt: localStorage.getItem("roro_system_prompt") || "",
