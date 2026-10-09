@@ -1,7 +1,6 @@
-// Vercel Serverless / Node.js Streaming Chat Endpoint for RoroGPT
+// Vercel Serverless / Node.js Streaming Chat Endpoint for RoroGPT (Optimized for Low Latency)
 
 export default async function handler(req, res) {
-  // Handle CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
@@ -14,7 +13,6 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed. Use POST." });
   }
 
-  // Parse body if not already parsed
   let body = req.body;
   if (typeof body === "string") {
     try {
@@ -26,20 +24,19 @@ export default async function handler(req, res) {
 
   const {
     messages = [],
-    model = "meta-llama/llama-3.3-70b-instruct:free",
+    model = "google/gemini-2.0-flash-exp:free", // Default to ultra-fast Gemini 2.0 Flash
     systemPrompt = "",
     temperature = 0.7,
     apiKey: clientApiKey = ""
   } = body || {};
 
-  // Resolve API Key: Client Key > Header Bearer > Server Env
   const headerKey = req.headers["authorization"]?.replace("Bearer ", "").trim();
   const envKey = (process.env.OPENROUTER_API_KEY || "").trim();
   const finalApiKey = (clientApiKey && clientApiKey.trim()) || headerKey || envKey;
 
   if (!finalApiKey || !finalApiKey.startsWith("sk-or-")) {
     return res.status(401).json({
-      error: "Missing or invalid OpenRouter API Key. Please click Settings ⚙️ in RoroGPT and enter your API key, or set OPENROUTER_API_KEY in your Vercel Environment Variables / .env file."
+      error: "Missing OpenRouter API Key. Please click Settings ⚙️ and enter your free key from https://openrouter.ai/keys (no credit card needed)."
     });
   }
 
@@ -47,7 +44,6 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Messages array cannot be empty." });
   }
 
-  // Prepare messages array with optional system prompt
   const formattedMessages = [];
   if (systemPrompt && systemPrompt.trim()) {
     formattedMessages.push({
@@ -56,7 +52,6 @@ export default async function handler(req, res) {
     });
   }
 
-  // Append conversation messages
   for (const msg of messages) {
     if (msg && msg.role && msg.content !== undefined) {
       formattedMessages.push({
@@ -66,10 +61,13 @@ export default async function handler(req, res) {
     }
   }
 
+  const targetModel = model || "google/gemini-2.0-flash-exp:free";
+
   const openRouterPayload = {
-    model: model || "meta-llama/llama-3.3-70b-instruct:free",
+    model: targetModel,
     messages: formattedMessages,
     temperature: typeof temperature === "number" ? temperature : 0.7,
+    max_tokens: 3500,
     stream: true
   };
 
@@ -102,7 +100,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // Set streaming headers
+    // Streaming SSE headers
     res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
@@ -111,6 +109,9 @@ export default async function handler(req, res) {
     if (res.flushHeaders) {
       res.flushHeaders();
     }
+
+    // Immediate keepalive
+    res.write(": connected\n\n");
 
     const reader = upstreamRes.body.getReader();
     const decoder = new TextDecoder("utf-8");
@@ -144,19 +145,17 @@ export default async function handler(req, res) {
               const clientPayload = JSON.stringify({
                 content,
                 reasoning,
-                model: parsed.model || model
+                model: parsed.model || targetModel
               });
               res.write(`data: ${clientPayload}\n\n`);
             }
           } catch {
-            // Forward raw data if parsing fails
             res.write(`${trimmed}\n\n`);
           }
         }
       }
     }
 
-    // Flush any leftover buffer
     if (buffer.trim().startsWith("data: ")) {
       const payload = buffer.trim().slice(6);
       if (payload === "[DONE]") {
@@ -168,7 +167,7 @@ export default async function handler(req, res) {
     return res.end();
   } catch (err) {
     if (!res.headersSent) {
-      return res.status(500).json({ error: `Internal Server Error: ${err.message}` });
+      return res.status(500).json({ error: `Server Error: ${err.message}` });
     } else {
       res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
       return res.end();

@@ -3,9 +3,9 @@
  * Powered by OpenRouter Free Tier Models & Vercel
  */
 
-// Default Configuration: Best Models Selected by Default
-const DEFAULT_CHAT_MODEL = "meta-llama/llama-3.3-70b-instruct:free";
-const DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small";
+// Default Configuration: 100% Free & Fastest Model by Default
+const DEFAULT_CHAT_MODEL = "google/gemini-2.0-flash-exp:free";
+const DEFAULT_EMBEDDING_MODEL = "free-fast-vector";
 
 // State
 const state = {
@@ -370,40 +370,47 @@ function selectModel(modelId) {
   const modelObj = state.models.find(m => m.id === modelId) || {
     id: modelId,
     name: modelId.split("/").pop().replace(":free", ""),
-    color: "#8b5cf6"
+    speed: "⚡ Free",
+    color: "#10b981"
   };
 
   const isBest = modelId === DEFAULT_CHAT_MODEL;
 
   DOM.activeModelName.textContent = modelObj.name;
-  DOM.activeModelDot.style.background = modelObj.color || "#8b5cf6";
-  DOM.activeModelDot.style.boxShadow = `0 0 8px ${modelObj.color || "#8b5cf6"}`;
+  DOM.activeModelDot.style.background = modelObj.color || "#10b981";
+  DOM.activeModelDot.style.boxShadow = `0 0 8px ${modelObj.color || "#10b981"}`;
 
   const bestBadge = DOM.modelPillBtn.querySelector(".best-badge");
   if (bestBadge) {
-    bestBadge.style.display = isBest ? "inline-block" : "none";
+    bestBadge.style.display = "inline-block";
+    bestBadge.textContent = isBest ? "⚡ Fastest" : (modelObj.speed || "Free");
   }
 
   // Update input chip
-  DOM.inputModelChip.querySelector(".chip-name").textContent = modelObj.name;
-  DOM.inputModelChip.querySelector(".chip-dot").style.background = modelObj.color || "#8b5cf6";
+  DOM.inputModelChip.querySelector(".chip-name").textContent = `${modelObj.name} (${modelObj.speed || "Free"})`;
+  DOM.inputModelChip.querySelector(".chip-dot").style.background = modelObj.color || "#10b981";
 
   // Update welcome hero
   if (DOM.welcomeActiveModel) {
-    DOM.welcomeActiveModel.textContent = `${modelObj.name} ${isBest ? "(★ Best)" : ""}`;
+    DOM.welcomeActiveModel.textContent = `${modelObj.name} (${modelObj.speed || "100% Free"})`;
   }
 
   // Close dropdown
   DOM.modelPillContainer.classList.remove("open");
   renderModelsUI();
-  showToast(`Switched model to ${modelObj.name}`, "info");
+
+  if (modelId.includes("r1")) {
+    showToast(`DeepSeek R1 selected. Note: Generates deep reasoning before answering (~30-90s). Switch to Gemini 2.0 Flash for instant replies!`, "info");
+  } else {
+    showToast(`Switched to ${modelObj.name} (${modelObj.speed || "100% Free"})`, "info");
+  }
 }
 
 function selectEmbeddingModel(modelId) {
   state.activeEmbeddingModel = modelId;
   localStorage.setItem("roro_active_embed_model", modelId);
   renderEmbeddingsUI();
-  DOM.testerActiveModelBadge.textContent = `Model: ${modelId} ${modelId === DEFAULT_EMBEDDING_MODEL ? "(★ Best)" : ""}`;
+  DOM.testerActiveModelBadge.textContent = `Model: ${modelId} (100% Free - 0 Cost)`;
   showToast(`Active embedding model set to ${modelId}`, "info");
 }
 
@@ -421,11 +428,11 @@ function renderModelsUI() {
         <span class="option-icon">${m.icon || "✨"}</span>
         <div class="option-info">
           <span class="option-name">${m.name}</span>
-          <span class="option-desc">${m.tagline || m.description || ""}</span>
+          <span class="option-desc">${m.speed ? `${m.speed} • ` : ""}${m.description || m.tagline || ""}</span>
         </div>
       </div>
-      <span class="option-badge" style="background: ${isBest ? "linear-gradient(135deg, #f59e0b, #ec4899)" : "rgba(255, 255, 255, 0.1)"}">
-        ${isBest ? "★ Best" : (m.badge || "Free")}
+      <span class="option-badge" style="background: ${isBest ? "linear-gradient(135deg, #10b981, #06b6d4)" : "rgba(255, 255, 255, 0.1)"}">
+        ${isBest ? "⚡ Fastest" : (m.badge || "Free")}
       </span>
     `;
     item.addEventListener("click", () => selectModel(m.id));
@@ -446,10 +453,11 @@ function renderModelsUI() {
           <span>${m.icon || "✨"}</span>
           <span class="card-m-name">${m.name}</span>
         </div>
-        <span class="card-badge" style="background: ${isBest ? "linear-gradient(135deg, #f59e0b, #ec4899)" : (m.color || "#8b5cf6")}">
-          ${isBest ? "★ Best Default" : (m.badge || "Free")}
+        <span class="card-badge" style="background: ${isBest ? "linear-gradient(135deg, #10b981, #06b6d4)" : (m.color || "#8b5cf6")}">
+          ${isBest ? "★ Fastest & Best Default" : (m.badge || "Free")}
         </span>
       </div>
+      <div class="card-speed" style="font-size: 0.72rem; color: #10b981; font-weight: 700;">${m.speed || "100% Free"}</div>
       <div class="card-m-desc">${m.description || m.tagline}</div>
       <div style="font-size: 0.7rem; color: var(--text-faint); font-family: var(--font-mono);">${m.id}</div>
     `;
@@ -989,6 +997,19 @@ async function sendMessage() {
   DOM.generatingBar.style.display = "flex";
   state.abortController = new AbortController();
 
+  const genText = DOM.generatingBar.querySelector(".gen-text");
+  let elapsedSeconds = 0;
+  if (genText) genText.textContent = "Connecting to free model...";
+  const timerInterval = setInterval(() => {
+    elapsedSeconds++;
+    if (!genText) return;
+    if (state.activeModel.includes("r1")) {
+      genText.textContent = `DeepSeek R1 reasoning (${elapsedSeconds}s)... (Thinking models solve complex steps first)`;
+    } else {
+      genText.textContent = `RoroGPT is replying (${elapsedSeconds}s)...`;
+    }
+  }, 1000);
+
   try {
     const res = await fetch("/api/chat", {
       method: "POST",
@@ -1066,6 +1087,7 @@ async function sendMessage() {
     }
     bubbleText.innerHTML = renderMarkdown(botMsg.content);
   } finally {
+    clearInterval(timerInterval);
     state.isGenerating = false;
     DOM.generatingBar.style.display = "none";
     DOM.sendBtn.disabled = DOM.chatInput.value.trim().length === 0;

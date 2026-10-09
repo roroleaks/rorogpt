@@ -107,12 +107,16 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
           </button>
           
+          <div class="topbar-corner-logo" title="RoroGPT">
+            <img src="/logo.jpg" alt="RoroGPT Logo">
+          </div>
+
           <!-- Model Selector Pill (Interactive Dropdown) -->
           <div class="model-pill-container" id="modelPillContainer">
             <button class="model-pill" id="modelPillBtn" title="Switch Model">
               <span class="model-color-dot" id="activeModelDot"></span>
-              <span class="model-name" id="activeModelName">Llama 3.3 70B</span>
-              <span class="model-tag best-badge">★ Best</span>
+              <span class="model-name" id="activeModelName">Gemini 2.0 Flash</span>
+              <span class="model-tag best-badge">⚡ Fastest</span>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
             </button>
 
@@ -182,19 +186,21 @@
         <!-- Welcome Screen (shown when conversation is empty) -->
         <div class="welcome-screen" id="welcomeScreen">
           <div class="welcome-hero">
-            <div class="welcome-logo-badge">
-              <img src="/logo.jpg" alt="RoroGPT" class="welcome-avatar-img">
-            </div>
-            <h1 class="welcome-title">Welcome to <span class="gradient-text">RoroGPT</span></h1>
+            <h1 class="welcome-title">
+              <span class="chat-dialog-icon-wrapper">
+                <img src="/logo.jpg" alt="Roro" class="chat-dialog-icon">
+              </span>
+              Welcome to <span class="gradient-text">RoroGPT</span>
+            </h1>
             <p class="welcome-subtitle">Classic GPT chat powered by the world's best free AI models via OpenRouter. Fast, unlimited, and fully customizable.</p>
             
             <div class="active-badge-bar">
               <div class="active-pill">
                 <span class="pulsing-dot"></span>
-                <span>Active Model: <strong id="welcomeActiveModel">Llama 3.3 70B (Best)</strong></span>
+                <span>Active Model: <strong id="welcomeActiveModel">Gemini 2.0 Flash (⚡ Instant & Free)</strong></span>
               </div>
               <div class="active-pill openrouter-free">
-                <span>Free Tier • 0 Cost</span>
+                <span>100% Free Tier • 0 Cost</span>
               </div>
             </div>
           </div>

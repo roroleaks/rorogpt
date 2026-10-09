@@ -1,94 +1,86 @@
-// Curated list of high-quality Free OpenRouter models
+// Strictly Free OpenRouter Models Provider
+// Every model in this list is 100% free ($0.00 / token, no credit card or paid key required)
+
 export const CURATED_FREE_MODELS = [
-  {
-    id: "meta-llama/llama-3.3-70b-instruct:free",
-    name: "Llama 3.3 70B",
-    tagline: "Top All-Rounder",
-    badge: "Recommended",
-    color: "#8b5cf6", // Purple
-    icon: "🦙",
-    context: "128K",
-    description: "Meta's flagship 70B model. Superior reasoning, instruction following, and knowledge."
-  },
-  {
-    id: "deepseek/deepseek-r1:free",
-    name: "DeepSeek R1",
-    tagline: "Deep Reasoning",
-    badge: "Thinking",
-    color: "#3b82f6", // Electric Blue
-    icon: "🧠",
-    context: "64K",
-    description: "Advanced reasoning model with chain-of-thought thinking for math, logic, and deep analysis."
-  },
-  {
-    id: "deepseek/deepseek-chat:free",
-    name: "DeepSeek V3",
-    tagline: "Smart & Fast",
-    badge: "Popular",
-    color: "#06b6d4", // Cyan
-    icon: "✨",
-    context: "64K",
-    description: "DeepSeek's flagship mixture-of-experts model. Extremely capable and versatile."
-  },
   {
     id: "google/gemini-2.0-flash-exp:free",
     name: "Gemini 2.0 Flash",
-    tagline: "Ultra Low Latency",
-    badge: "Fastest",
+    speed: "⚡ Instant (~1s)",
+    badge: "★ Best & Fastest",
     color: "#10b981", // Emerald
     icon: "⚡",
     context: "1M",
-    description: "Google's next-gen Flash model. Blazing response speed with a massive context window."
+    description: "Ultra-fast response with zero thinking delay. Huge 1M context window. 100% Free."
   },
   {
-    id: "google/gemini-2.0-flash-thinking-exp:free",
-    name: "Gemini 2.0 Flash Thinking",
-    tagline: "Google Reasoning",
-    badge: "Thinking",
-    color: "#14b8a6", // Teal
-    icon: "🔮",
-    context: "32K",
-    description: "Gemini's dedicated thinking model that outputs its reasoning process before answering."
-  },
-  {
-    id: "qwen/qwen-2.5-coder-32b-instruct:free",
-    name: "Qwen 2.5 Coder 32B",
-    tagline: "Coding Specialist",
-    badge: "Code",
-    color: "#f59e0b", // Amber
-    icon: "💻",
-    context: "32K",
-    description: "Alibaba's dedicated code intelligence model. High precision in Python, JS, debugging, and architecture."
-  },
-  {
-    id: "mistralai/mistral-small-24b-instruct-2501:free",
-    name: "Mistral Small 24B",
-    tagline: "Nuanced & Concise",
-    badge: "New",
-    color: "#ec4899", // Pink
-    icon: "🌪️",
-    context: "32K",
-    description: "Mistral's latest efficient reasoning model with balanced style and accurate answers."
+    id: "meta-llama/llama-3.3-70b-instruct:free",
+    name: "Llama 3.3 70B",
+    speed: "🚀 Fast (~3s)",
+    badge: "Top Intelligence",
+    color: "#8b5cf6", // Purple
+    icon: "🦙",
+    context: "128K",
+    description: "Meta's flagship 70B model. Superior reasoning, coding, and general knowledge. 100% Free."
   },
   {
     id: "meta-llama/llama-3.1-8b-instruct:free",
     name: "Llama 3.1 8B",
-    tagline: "Light & Snappy",
-    badge: "Fast",
+    speed: "⚡ Instant (~1s)",
+    badge: "Ultra Fast",
     color: "#6366f1", // Indigo
-    icon: "⚡",
+    icon: "🚀",
     context: "128K",
-    description: "Lightweight, ultra-fast model great for casual chat and instant lookups."
+    description: "Extremely fast and lightweight model for instant answers and casual conversations. 100% Free."
   },
   {
-    id: "openrouter/auto",
-    name: "OpenRouter Auto",
-    tagline: "Auto Free Fallback",
-    badge: "Auto",
+    id: "qwen/qwen-2.5-coder-32b-instruct:free",
+    name: "Qwen 2.5 Coder 32B",
+    speed: "💻 Fast (~3s)",
+    badge: "Best for Code",
+    color: "#f59e0b", // Amber
+    icon: "💻",
+    context: "32K",
+    description: "Specialized in Python, JS, debugging, algorithms, and clean architecture. 100% Free."
+  },
+  {
+    id: "mistralai/mistral-small-24b-instruct-2501:free",
+    name: "Mistral Small 24B",
+    speed: "🌪️ Fast (~3s)",
+    badge: "Balanced",
+    color: "#ec4899", // Pink
+    icon: "🌪️",
+    context: "32K",
+    description: "Mistral's latest efficient model. Crisp, concise, and nuanced answers. 100% Free."
+  },
+  {
+    id: "deepseek/deepseek-chat:free",
+    name: "DeepSeek V3",
+    speed: "✨ Fast (~3s)",
+    badge: "Smart",
+    color: "#06b6d4", // Cyan
+    icon: "✨",
+    context: "64K",
+    description: "DeepSeek mixture-of-experts general chat model. Smart and versatile. 100% Free."
+  },
+  {
+    id: "openrouter/free",
+    name: "OpenRouter Free Router",
+    speed: "🤖 Variable (~2-4s)",
+    badge: "Auto Free",
     color: "#a855f7", // Fuchsia
     icon: "🤖",
     context: "Auto",
-    description: "Automatically routes to the best available free model on OpenRouter."
+    description: "Routes requests automatically across available free models on OpenRouter. 100% Free."
+  },
+  {
+    id: "deepseek/deepseek-r1:free",
+    name: "DeepSeek R1",
+    speed: "🧠 Thinking (~30-90s)",
+    badge: "Deep Reasoning",
+    color: "#3b82f6", // Electric Blue
+    icon: "🧠",
+    context: "64K",
+    description: "Chain-of-thought thinking model. Takes longer to solve complex math and logic. 100% Free."
   }
 ];
 
@@ -107,7 +99,7 @@ export default async function handler(req, res) {
 
     let dynamicFreeModels = [];
 
-    // Optionally fetch dynamic list from OpenRouter if available
+    // Dynamically discover newly added free models on OpenRouter
     try {
       const headers = {
         "HTTP-Referer": "https://rorogpt.vercel.app",
@@ -126,27 +118,38 @@ export default async function handler(req, res) {
         const data = await orResponse.json();
         if (Array.isArray(data.data)) {
           dynamicFreeModels = data.data
-            .filter(m => m.id && (m.id.endsWith(":free") || (m.pricing && m.pricing.prompt === "0" && m.pricing.completion === "0")))
+            // STRICT FILTER: Only models ending in :free or openrouter/free, and absolutely NOT audio/song pricing
+            .filter(m => {
+              if (!m || !m.id) return false;
+              const isFreeId = m.id.endsWith(":free") || m.id === "openrouter/free";
+              const isAudioOrPaid = m.id.includes("lyria") || m.id.includes("paid");
+              const hasZeroPrice = !m.pricing || (
+                Number(m.pricing.prompt || 0) === 0 &&
+                Number(m.pricing.completion || 0) === 0 &&
+                Number(m.pricing.request || 0) === 0 &&
+                Number(m.pricing.image || 0) === 0
+              );
+              return isFreeId && !isAudioOrPaid && hasZeroPrice;
+            })
             .map(m => {
               const curated = CURATED_FREE_MODELS.find(c => c.id === m.id);
               return curated || {
                 id: m.id,
                 name: m.name || m.id.split("/").pop().replace(":free", ""),
-                tagline: "Free OpenRouter Model",
+                speed: "⚡ Free Model",
                 badge: "Free",
                 color: "#06b6d4",
                 icon: "✨",
                 context: m.context_length ? `${Math.round(m.context_length / 1024)}K` : "Free",
-                description: m.description ? m.description.slice(0, 120) + "..." : "Available via OpenRouter free tier"
+                description: m.description ? m.description.slice(0, 110) + "..." : "100% Free OpenRouter Model"
               };
             });
         }
       }
     } catch {
-      // Ignore network timeout, fallback to curated list
+      // Fallback to curated list
     }
 
-    // Combine curated with any dynamically found free models (avoiding duplicates)
     const seen = new Set();
     const finalModels = [];
 

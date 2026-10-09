@@ -619,6 +619,25 @@ body {
   gap: 12px;
 }
 
+.topbar-corner-logo {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  background: var(--grad-aurora);
+  padding: 2px;
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.4);
+  display: flex;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.topbar-corner-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: calc(var(--radius-sm) - 2px);
+}
+
 .topbar-right {
   display: flex;
   align-items: center;
@@ -922,19 +941,21 @@ body {
   padding: 30px 10px;
 }
 
-.welcome-logo-badge {
-  width: 90px;
-  height: 90px;
+.chat-dialog-icon-wrapper {
+  display: inline-flex;
+  vertical-align: middle;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
-  margin-bottom: 20px;
-  padding: 3px;
   background: var(--grad-aurora);
-  box-shadow: 0 0 30px rgba(139, 92, 246, 0.5), 0 0 60px rgba(236, 72, 153, 0.3);
-  animation: pulseGlow 4s infinite alternate;
-  display: flex;
+  padding: 2px;
+  box-shadow: 0 0 14px rgba(139, 92, 246, 0.45);
+  margin-right: 10px;
+  overflow: hidden;
+  transform: translateY(-2px);
 }
 
-.welcome-avatar-img {
+.chat-dialog-icon {
   width: 100%;
   height: 100%;
   object-fit: cover;
