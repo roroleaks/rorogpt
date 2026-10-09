@@ -1264,9 +1264,26 @@ function initEvents() {
   // Search chats
   DOM.searchChatsInput.addEventListener("input", renderConversationsSidebar);
 
-  // Mobile sidebar toggle
-  DOM.menuToggleBtn.addEventListener("click", () => DOM.sidebar.classList.toggle("open"));
-  DOM.closeSidebarBtn.addEventListener("click", () => DOM.sidebar.classList.remove("open"));
+  // Mobile sidebar toggle & backdrop
+  const sidebarBackdrop = document.getElementById("sidebarBackdrop");
+  DOM.menuToggleBtn.addEventListener("click", () => {
+    DOM.sidebar.classList.toggle("open");
+    if (sidebarBackdrop) {
+      sidebarBackdrop.classList.toggle("active", DOM.sidebar.classList.contains("open"));
+    }
+  });
+  DOM.closeSidebarBtn.addEventListener("click", () => {
+    DOM.sidebar.classList.remove("open");
+    if (sidebarBackdrop) {
+      sidebarBackdrop.classList.remove("active");
+    }
+  });
+  if (sidebarBackdrop) {
+    sidebarBackdrop.addEventListener("click", () => {
+      DOM.sidebar.classList.remove("open");
+      sidebarBackdrop.classList.remove("active");
+    });
+  }
 
   // Starter prompt cards
   document.querySelectorAll(".prompt-card").forEach(card => {

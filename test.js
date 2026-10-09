@@ -30,6 +30,7 @@ async function runTests() {
     "public/style.css",
     "public/app.js",
     "public/logo.jpg",
+    "public/creator.jpg",
     "public/favicon.svg",
     "api/chat.js",
     "api/models.js",
@@ -44,17 +45,23 @@ async function runTests() {
     assert(fs.existsSync(fullPath), `File exists: ${f}`);
   }
 
-  // Check logo image size is valid
+  // Check logo & creator image sizes are valid
   const logoStat = fs.statSync(path.join(__dirname, "public/logo.jpg"));
   assert(logoStat.size > 10000, `New logo.jpg is present and valid (${logoStat.size} bytes)`);
 
-  // TEST SUITE 2: Check UI layout requirements
-  console.log("\n--- 2. UI Layout: Image in Left Corner & Small Icon in Chat Dialog ---");
+  const creatorStat = fs.statSync(path.join(__dirname, "public/creator.jpg"));
+  assert(creatorStat.size > 10000, `Creator photo creator.jpg is present and valid (${creatorStat.size} bytes)`);
+
+  // TEST SUITE 2: Check UI layout & creator attribution
+  console.log("\n--- 2. UI Layout: Corner Logo, Chat Icon, Mobile & Creator Attribution ---");
   const htmlContent = fs.readFileSync(path.join(__dirname, "public/index.html"), "utf8");
   assert(htmlContent.includes("topbar-corner-logo"), "Corner logo exists in topbar left corner");
   assert(htmlContent.includes("brand-avatar-img"), "Corner logo exists in sidebar brand header (left corner)");
   assert(!htmlContent.includes("welcome-logo-badge"), "Large centered image removed from chat dialog");
   assert(htmlContent.includes("chat-dialog-icon"), "Small icon is used in chat dialog title instead");
+  assert(htmlContent.includes("Created by") && htmlContent.includes("Dr Raouf Roshdy"), "Bottom attribution 'Created by Dr Raouf Roshdy' is present");
+  assert(htmlContent.includes("creator-credit-avatar"), "Creator photo icon is present in footer");
+  assert(htmlContent.includes("sidebarBackdrop"), "Mobile sidebar backdrop overlay is present");
 
   // TEST SUITE 3: HTTP Server & Strict Free Models Validation
   console.log("\n--- 3. Strict 100% Free Models Verification ---");

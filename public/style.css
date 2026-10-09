@@ -2189,17 +2189,147 @@ input[type="range"] {
 }
 
 /* ==========================================================
-   RESPONSIVE DESIGN (MOBILE & TABLET)
+   CREATOR ATTRIBUTION BADGE (Dr Raouf Roshdy)
+   ========================================================== */
+.footer-disclaimer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+  font-size: 0.76rem;
+  color: var(--text-faint);
+  padding: 4px 10px 6px;
+}
+
+.footer-note {
+  opacity: 0.85;
+}
+
+.footer-creator-credit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 4px 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  backdrop-filter: blur(8px);
+  transition: all 0.2s ease;
+}
+
+.footer-creator-credit:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(139, 92, 246, 0.35);
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.2);
+}
+
+.creator-credit-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1.5px solid #8b5cf6;
+  box-shadow: 0 0 8px rgba(139, 92, 246, 0.5);
+  flex-shrink: 0;
+}
+
+.creator-credit-name {
+  color: var(--text-main);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.sidebar-creator-attribution {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin: 0 10px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+}
+
+.sidebar-creator-attribution:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(139, 92, 246, 0.3);
+}
+
+.creator-sidebar-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid #8b5cf6;
+  box-shadow: 0 0 10px rgba(139, 92, 246, 0.45);
+  flex-shrink: 0;
+}
+
+.creator-sidebar-details {
+  display: flex;
+  flex-direction: column;
+}
+
+.creator-sidebar-by {
+  font-size: 0.68rem;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+.creator-sidebar-name {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+/* Mobile Sidebar Backdrop Overlay */
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 85;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.sidebar-backdrop.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ==========================================================
+   RESPONSIVE DESIGN (MOBILE & TABLET OPTIMIZATIONS)
    ========================================================== */
 
 @media (max-width: 768px) {
+  body, .app-container {
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
+  }
+
   .sidebar {
-    position: absolute;
+    position: fixed;
     left: 0;
     top: 0;
     bottom: 0;
+    width: 82%;
+    max-width: 310px;
+    z-index: 100;
     transform: translateX(-100%);
-    box-shadow: 0 0 40px rgba(0, 0, 0, 0.7);
+    box-shadow: 0 0 45px rgba(0, 0, 0, 0.85);
+    transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   .sidebar.open {
@@ -2210,27 +2340,133 @@ input[type="range"] {
     display: flex;
   }
 
+  .topbar {
+    padding: 0 10px;
+    height: 54px;
+  }
+
+  .topbar-left {
+    gap: 8px;
+  }
+
+  .topbar-corner-logo {
+    width: 28px;
+    height: 28px;
+  }
+
+  .model-pill {
+    padding: 4px 10px;
+    max-width: 175px;
+  }
+
+  .model-name {
+    max-width: 95px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.82rem;
+  }
+
+  .model-tag {
+    display: none !important;
+  }
+
+  .welcome-screen {
+    padding: 20px 12px;
+  }
+
   .welcome-title {
-    font-size: 1.8rem;
+    font-size: 1.65rem;
+  }
+
+  .chat-dialog-icon-wrapper {
+    width: 30px;
+    height: 30px;
+  }
+
+  .welcome-subtitle {
+    font-size: 0.88rem;
+    margin-bottom: 16px;
   }
 
   .prompt-cards-grid {
     grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .prompt-card {
+    padding: 12px;
+  }
+
+  .input-dock {
+    padding: 0 8px max(10px, env(safe-area-inset-bottom, 10px));
+  }
+
+  .input-wrapper {
+    padding: 8px 10px 8px;
+    border-radius: var(--radius-lg);
+  }
+
+  .chat-viewport {
+    padding: 12px 10px;
+  }
+
+  .message-row {
+    padding: 10px 4px;
+  }
+
+  .message-bubble {
+    max-width: 92%;
+    font-size: 0.92rem;
+    padding: 12px 14px;
   }
 
   .tester-grid {
     grid-template-columns: 1fr;
-  }
-
-  .topbar {
-    padding: 0 12px;
-  }
-
-  .input-dock {
-    padding: 0 12px 12px;
+    gap: 12px;
   }
 
   .modal-dialog {
-    max-height: 95vh;
+    width: 94%;
+    max-width: 94%;
+    max-height: 90dvh;
+    padding: 18px 14px;
+    margin: auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .welcome-title {
+    font-size: 1.35rem;
+  }
+
+  .welcome-hero {
+    margin-bottom: 20px;
+  }
+
+  .model-pill {
+    max-width: 130px;
+  }
+
+  .model-name {
+    max-width: 70px;
+  }
+
+  .input-model-chip {
+    max-width: 140px;
+  }
+
+  .footer-disclaimer {
+    font-size: 0.7rem;
+  }
+
+  .footer-creator-credit {
+    font-size: 0.74rem;
+    padding: 3px 10px;
+  }
+
+  .creator-credit-avatar {
+    width: 20px;
+    height: 20px;
   }
 }
