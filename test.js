@@ -52,15 +52,18 @@ async function runTests() {
   const creatorStat = fs.statSync(path.join(__dirname, "public/creator.jpg"));
   assert(creatorStat.size > 10000, `Creator photo creator.jpg is present and valid (${creatorStat.size} bytes)`);
 
-  // TEST SUITE 2: Check UI layout & creator attribution
-  console.log("\n--- 2. UI Layout: Corner Logo, Chat Icon, Mobile & Creator Attribution ---");
+  // TEST SUITE 2: Check UI layout, themes, & creator attribution
+  console.log("\n--- 2. UI Layout: Corner Logo, Chat Icon, Dark Themes & Creator Attribution ---");
   const htmlContent = fs.readFileSync(path.join(__dirname, "public/index.html"), "utf8");
   assert(htmlContent.includes("topbar-corner-logo"), "Corner logo exists in topbar left corner");
   assert(htmlContent.includes("brand-avatar-img"), "Corner logo exists in sidebar brand header (left corner)");
   assert(!htmlContent.includes("welcome-logo-badge"), "Large centered image removed from chat dialog");
   assert(htmlContent.includes("chat-dialog-icon"), "Small icon is used in chat dialog title instead");
-  assert(htmlContent.includes("Created by") && htmlContent.includes("Dr Raouf Roshdy"), "Bottom attribution 'Created by Dr Raouf Roshdy' is present");
-  assert(htmlContent.includes("creator-credit-avatar"), "Creator photo icon is present in footer");
+  assert(htmlContent.includes("sidebar-creator-attribution") && htmlContent.includes("Dr Raouf Roshdy"), "Sidebar attribution 'Created by Dr Raouf Roshdy' is present");
+  assert(htmlContent.includes("creator-sidebar-avatar"), "Creator photo icon is present in sidebar");
+  assert(!htmlContent.includes("footer-creator-credit"), "Bottom duplicate creator credit removed (no duplicate)");
+  assert(!htmlContent.includes("candy-pop"), "No white/light theme in index.html (all dark themes)");
+  assert(htmlContent.includes("emerald-matrix"), "Vibrant dark theme 'Emerald Matrix' is present");
   assert(htmlContent.includes("sidebarBackdrop"), "Mobile sidebar backdrop overlay is present");
 
   // TEST SUITE 3: HTTP Server & Strict Free Models Validation

@@ -20,7 +20,7 @@ const state = {
   apiKey: localStorage.getItem("roro_api_key") || "",
   systemPrompt: localStorage.getItem("roro_system_prompt") || "",
   temperature: parseFloat(localStorage.getItem("roro_temperature") || "0.7"),
-  currentTheme: localStorage.getItem("roro_theme") || "neon-aurora",
+  currentTheme: (localStorage.getItem("roro_theme") === "candy-pop" ? "neon-aurora" : (localStorage.getItem("roro_theme") || "neon-aurora")),
   soundEnabled: localStorage.getItem("roro_sfx") !== "false",
   currentChatId: null,
   chats: {},
@@ -767,6 +767,8 @@ function loadChat(chatId) {
   // If mobile, auto-close sidebar
   if (window.innerWidth <= 768) {
     DOM.sidebar.classList.remove("open");
+    const sidebarBackdrop = document.getElementById("sidebarBackdrop");
+    if (sidebarBackdrop) sidebarBackdrop.classList.remove("active");
   }
 }
 
@@ -1264,16 +1266,21 @@ function initEvents() {
   // Search chats
   DOM.searchChatsInput.addEventListener("input", renderConversationsSidebar);
 
-  // Mobile sidebar toggle & backdrop
+  // Sidebar toggle & backdrop (Instant appear / disappear)
   const sidebarBackdrop = document.getElementById("sidebarBackdrop");
   DOM.menuToggleBtn.addEventListener("click", () => {
-    DOM.sidebar.classList.toggle("open");
-    if (sidebarBackdrop) {
-      sidebarBackdrop.classList.toggle("active", DOM.sidebar.classList.contains("open"));
+    if (window.innerWidth <= 768) {
+      DOM.sidebar.classList.toggle("open");
+      if (sidebarBackdrop) {
+        sidebarBackdrop.classList.toggle("active", DOM.sidebar.classList.contains("open"));
+      }
+    } else {
+      DOM.sidebar.classList.toggle("hidden");
     }
   });
   DOM.closeSidebarBtn.addEventListener("click", () => {
     DOM.sidebar.classList.remove("open");
+    DOM.sidebar.classList.add("hidden");
     if (sidebarBackdrop) {
       sidebarBackdrop.classList.remove("active");
     }
