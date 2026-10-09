@@ -44,11 +44,15 @@ async function runTests() {
     assert(fs.existsSync(fullPath), `File exists: ${f}`);
   }
 
-  // TEST SUITE 2: Check HTML for chat dialog icon and left corner logo
+  // Check logo image size is valid
+  const logoStat = fs.statSync(path.join(__dirname, "public/logo.jpg"));
+  assert(logoStat.size > 10000, `New logo.jpg is present and valid (${logoStat.size} bytes)`);
+
+  // TEST SUITE 2: Check UI layout requirements
   console.log("\n--- 2. UI Layout: Image in Left Corner & Small Icon in Chat Dialog ---");
   const htmlContent = fs.readFileSync(path.join(__dirname, "public/index.html"), "utf8");
   assert(htmlContent.includes("topbar-corner-logo"), "Corner logo exists in topbar left corner");
-  assert(htmlContent.includes("brand-avatar-img"), "Corner logo exists in sidebar brand header");
+  assert(htmlContent.includes("brand-avatar-img"), "Corner logo exists in sidebar brand header (left corner)");
   assert(!htmlContent.includes("welcome-logo-badge"), "Large centered image removed from chat dialog");
   assert(htmlContent.includes("chat-dialog-icon"), "Small icon is used in chat dialog title instead");
 
@@ -71,17 +75,25 @@ async function runTests() {
     const data = await res.json();
     assert(data.success === true, "/api/models returned success: true");
 
-    // Check that ALL models are strictly free
-    const nonFreeModels = data.models.filter(m => !m.id.endsWith(":free") && m.id !== "openrouter/free");
-    assert(nonFreeModels.length === 0, `All ${data.models.length} models are strictly free tier (${nonFreeModels.length} non-free found)`);
+    // Verify Groq, Gemini, Cerebras, Local Ollama models are present
+    const hasGroq70b = data.models.some(m => m.id === "llama-3.3-70b-versatile" && m.provider === "groq");
+    assert(hasGroq70b, "100% Free Groq model 'llama-3.3-70b-versatile' (500 tok/s) is present");
 
-    // Verify Gemini 2.0 Flash is present
-    const hasGemini = data.models.some(m => m.id === "google/gemini-2.0-flash-exp:free");
-    assert(hasGemini, "Ultra-fast default model 'google/gemini-2.0-flash-exp:free' is present");
+    const hasGroqInstant = data.models.some(m => m.id === "llama-3.1-8b-instant" && m.provider === "groq");
+    assert(hasGroqInstant, "100% Free Groq instant model 'llama-3.1-8b-instant' (800 tok/s) is present");
 
-    // Verify audio/paid models like lyria are NOT present
-    const hasLyria = data.models.some(m => m.id.includes("lyria"));
-    assert(!hasLyria, "Non-free models (e.g. Lyria music) are completely excluded");
+    const hasGemini = data.models.some(m => m.id === "gemini-2.0-flash" && m.provider === "gemini");
+    assert(hasGemini, "100% Free Google model 'gemini-2.0-flash' is present");
+
+    const hasCerebras = data.models.some(m => m.id === "llama3.3-70b" && m.provider === "cerebras");
+    assert(hasCerebras, "100% Free Cerebras model 'llama3.3-70b' (1800 tok/s) is present");
+
+    const hasLocal = data.models.some(m => m.provider === "local");
+    assert(hasLocal, "100% Free Local Ollama (Odysseus-style) offline models are present");
+
+    // Ensure NO non-free or paid models exist
+    const hasPaid = data.models.some(m => m.price || m.badge?.includes("Paid") || m.id.includes("gpt-4o") || m.id.includes("claude-3-5-sonnet"));
+    assert(!hasPaid, "ZERO paid/non-free models in the curated model list");
   } catch (err) {
     assert(false, `GET /api/models failed: ${err.message}`);
   }
@@ -112,6 +124,15 @@ async function runTests() {
   try {
     const res = await fetch(`${baseUrl}/api/chat`, { method: "GET" });
     assert(res.status === 405, "GET /api/chat returns HTTP 405 Method Not Allowed");
+
+    const noKeyRes = await fetch(`${baseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: [{ role: "user", content: "hi" }] })
+    });
+    assert(noKeyRes.status === 401, "POST /api/chat without key prompts user with free key instructions (HTTP 401)");
+    const noKeyData = await noKeyRes.json();
+    assert(noKeyData.error.includes("Groq") && noKeyData.error.includes("Google AI Studio"), "Helpful guidance points user to 100% free keys");
   } catch (err) {
     assert(false, `GET /api/chat method check failed: ${err.message}`);
   }
@@ -122,9 +143,9 @@ async function runTests() {
   console.log("========================================================\n");
 
   if (failed > 0) {
-    process.exit(1);
+    process.exitCode = 1;
   } else {
-    process.exit(0);
+    process.exitCode = 0;
   }
 }
 

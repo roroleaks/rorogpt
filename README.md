@@ -1,123 +1,101 @@
 # 🌈 RoroGPT
 
-> **A vibrant, colorful, and completely free AI chat web application powered by OpenRouter's free tier models. Designed for seamless 1-click deployment on Vercel with local PC chat storage.**
+> **A vibrant, colorful, and 100% free AI chat web application powered by ultra-fast free models (Groq LPUs, Google Gemini, Cerebras, and Local Ollama). Designed for seamless deployment on Vercel with local PC chat storage.**
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/roroleaks/rorogpt&env=OPENROUTER_API_KEY&envDescription=Your%20OpenRouter%20API%20Key&envLink=https://openrouter.ai/keys)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/roroleaks/rorogpt)
 [![GitHub Repo](https://img.shields.io/badge/GitHub-roroleaks%2Frorogpt-blue?logo=github)](https://github.com/roroleaks/rorogpt)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 <p align="center">
-  <img src="public/logo.jpg" alt="RoroGPT Logo" width="180" style="border-radius: 50%; box-shadow: 0 0 25px rgba(139, 92, 246, 0.5);" />
+  <img src="public/logo.jpg" alt="RoroGPT Logo" width="180" style="border-radius: 24px; box-shadow: 0 0 35px rgba(59, 130, 246, 0.6);" />
 </p>
 
 ---
 
-## ✨ Key Features
+## ✨ 100% Free & Blazing Fast AI
 
-- **100% Free AI Models**: Uses OpenRouter's free tier (`https://openrouter.ai/openrouter/free`).
-  - **★ Best Default**: `meta-llama/llama-3.3-70b-instruct:free` (Llama 3.3 70B - Meta's flagship model with 128K context, high-tier reasoning, and code intelligence).
-  - 🧠 `deepseek/deepseek-r1:free` (Reasoning model with real-time collapsible chain-of-thought "Thinking Process").
-  - ⚡ `google/gemini-2.0-flash-exp:free` (Blazing fast speed with massive context).
-  - 💻 `qwen/qwen-2.5-coder-32b-instruct:free` (Specialized in programming and debugging).
-  - 🌪️ `mistralai/mistral-small-24b-instruct-2501:free` (Balanced, concise responses).
-  - 🤖 `openrouter/free` (Automatic free model routing).
-  - 🔀 **Custom Model Input**: Enter any OpenRouter model identifier anytime.
+RoroGPT eliminates long waiting times and paid credit blocks by supporting the world's best permanent free AI providers with **ZERO credit card** and **ZERO credit purchases** required:
 
-- **💾 Save Chats to User PC Special Folder (Not on Server)**:
-  - **Zero Server Storage**: Your chats are never stored on Vercel servers or cloud databases.
-  - **Native PC Folder Sync**: Pick any folder on your computer (e.g. `Documents/RoroGPT_Chats`) using the browser's native File System Access API.
-  - **Dual Auto-Save**: Conversations are automatically written directly to your PC hard drive as:
-    1. **`.md` (Markdown)**: Beautiful, readable format with user/bot sections and timestamps.
-    2. **`.json` (JSON)**: Full structured conversation data with role history.
-  - **Import & Backup**: One-click to reload or backup chats directly from your PC folder.
+### 1. ⚡ Groq Cloud (Recommended • 500-800 tok/s)
+- **100% Free forever** with no credit card required.
+- **Generates answers in ~0.2 to 0.4 seconds** on custom LPUs (solves the 2-minute delay).
+- **Flagship Models**:
+  - `llama-3.3-70b-versatile`: Meta's 70B flagship model (128K context).
+  - `llama-3.1-8b-instant`: Instant sub-second responses (~800 tok/s).
+  - `deepseek-r1-distill-llama-70b`: Deep reasoning with chain-of-thought in 2-4 seconds.
+  - `gemma2-9b-it`: Google's 9B instruction model.
+  - `mixtral-8x7b-32768`: 32K context mixture-of-experts.
+- **Get Free Key**: [console.groq.com/keys](https://console.groq.com/keys) (Instant 10-second setup, no card).
 
-- **🧠 Customizable Embedding Models**:
-  - Switch embedding models in the **Models & Tools Studio**:
-    - **★ Best Default**: `text-embedding-3-small` (OpenAI)
-    - `baai/bge-m3` (Multilingual)
-    - `nomic-ai/nomic-embed-text-v1.5` (Open source)
-    - Or any custom embedding model ID.
-  - **Semantic Similarity Tester**: Test vector embeddings and live cosine similarity percentages between two text snippets in real-time!
+### 2. 🌟 Google Gemini (Google AI Studio)
+- **100% Free** permanent developer tier (1,500 requests/day, no credit card).
+- **Models**: `gemini-2.0-flash`, `gemini-1.5-flash` with 1M token context.
+- **Get Free Key**: [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
 
-- **🎨 5 Vibrant Themes ("Must be colorful")**:
-  - 🌈 **Neon Aurora** *(Default)*: Deep obsidian with glowing neon pink, electric violet, cyan, and lime accents.
-  - 🌅 **Sunset Ember**: Warm crimson, coral, amber, and gold.
-  - 🌊 **Cyber Ocean**: High-tech bioluminescent electric teal and cobalt blue.
-  - 🍇 **Cosmic Violet**: Deep space galactic nebula with vivid amethyst and magenta.
-  - 🍭 **Candy Pop**: High-contrast, colorful daylight mode.
+### 3. 🚀 Cerebras Cloud (Awesome Free API)
+- **1800+ tokens/second** world-record inference on CS-3 wafer-scale engines.
+- **Models**: `llama3.3-70b`, `llama3.1-8b`.
 
-- **⚡ Modern Chat Experience**:
-  - Real-time Server-Sent Events (SSE) token streaming.
-  - Tokyo-Night dark code blocks with language labels and 1-click **Copy Code** button.
-  - KaTeX math formula rendering ($\dots$ and $$\dots$$).
-  - Text-to-Speech (read bot responses aloud).
-  - Stop generation & Regenerate controls.
-  - Sound SFX synthesized audio feedback (toggleable).
+### 4. 💻 Local Ollama / Odysseus (100% Offline & Private)
+- **Zero API keys needed**. Runs directly on your PC hardware via Ollama (`http://localhost:11434`).
+- **Models**: `ollama/llama3`, `ollama/deepseek-r1`, `ollama/mistral`.
+
+---
+
+## 💾 Save Chats to User PC Folder (Never on Server)
+
+- **Zero Server Retention**: Conversations are never saved on Vercel servers or cloud databases.
+- **Native PC Folder Sync**: Pick any folder on your computer (e.g. `Documents/RoroGPT_Chats`) using the browser's native File System Access API.
+- **Dual Auto-Save**: Conversations are automatically written directly to your PC hard drive as:
+  1. **`.md` (Markdown)**: Beautiful, readable format with user/bot sections and timestamps.
+  2. **`.json` (JSON)**: Full structured conversation data with role history.
+- **One-Click Backup & Reload**: Seamlessly load prior conversations from your local directory.
+
+---
+
+## 🎨 Vibrant Themes & UI
+
+- 🌈 **Neon Aurora** *(Default)*: Deep obsidian with glowing neon pink, electric violet, cyan, and lime accents.
+- 🌅 **Sunset Ember**: Warm crimson, coral, amber, and gold.
+- 🌊 **Cyber Ocean**: Bioluminescent electric teal and cobalt blue.
+- 🍇 **Cosmic Violet**: Deep space galactic nebula with vivid amethyst and magenta.
+- 🍭 **Candy Pop**: High-contrast, colorful daylight mode.
 
 ---
 
 ## 🚀 Quick Start (Local PC)
 
-### 1. Prerequisites
-- [Node.js](https://nodejs.org/) v18 or later.
-
-### 2. Run the App
-Double-click `run.bat` or run in terminal:
+### 1. Run the Local Server
 ```bash
 npm start
 ```
 Open **[http://localhost:3000](http://localhost:3000)** in your browser!
 
-### 3. Set Your Free API Key
-- Enter your key in the **Settings ⚙️** modal inside the web app (stored securely in your browser), OR
-- Create a `.env` file from `.env.example`:
-  ```env
-  OPENROUTER_API_KEY=sk-or-v1-your-key-here
-  ```
-  *(Get your free key at [openrouter.ai/keys](https://openrouter.ai/keys))*
+### 2. Add Your Free API Key
+- Click **Settings ⚙️** inside the web app.
+- Paste your 100% Free Groq key (`gsk_...`) or Gemini key (`AIza...`).
+- It saves securely in your browser's localStorage!
 
 ---
 
-## ▲ Deploying to Vercel (1-Click)
+## ▲ Deploying to Vercel
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/roroleaks/rorogpt&env=OPENROUTER_API_KEY&envDescription=Your%20OpenRouter%20API%20Key&envLink=https://openrouter.ai/keys)
-
-1. Click the **Deploy with Vercel** button above or import [`roroleaks/rorogpt`](https://github.com/roroleaks/rorogpt) at [vercel.com/new](https://vercel.com/new).
-2. Under **Environment Variables**, add:
-   - **Key**: `OPENROUTER_API_KEY`
-   - **Value**: `sk-or-v1-...`
-3. Click **Deploy**. Your app is live with global CDN, SSL, and serverless edge streaming!
-
----
-
-## 🛠️ Project Structure
-
-```
-rorogpt/
-├── api/
-│   ├── chat.js         # Streaming SSE completions handler (Vercel serverless)
-│   ├── models.js       # Curated + dynamic free models provider
-│   └── embeddings.js   # Embeddings calculation & similarity endpoint
-├── public/
-│   ├── index.html      # Responsive colorful UI with modals and drawers
-│   ├── style.css       # 5 vibrant theme palettes, glows, glassmorphism
-│   ├── app.js          # Client state, streaming reader, PC file storage
-│   ├── logo.jpg        # RoroGPT smiling mascot avatar & favicon
-│   └── favicon.svg     # Vector fallback icon
-├── .env.example        # Environment variable template
-├── package.json        # Node.js project configuration
-├── vercel.json         # Vercel deployment configuration
-├── server.js           # Lightweight local development server
-└── run.bat             # 1-click Windows launcher
+```bash
+vercel --prod --yes
 ```
 
+Or deploy via GitHub at [https://github.com/roroleaks/rorogpt](https://github.com/roroleaks/rorogpt).
+
 ---
 
-## 🔒 Privacy & Local Storage
-- RoroGPT does **NOT** store your conversations on any server or database.
-- Chat history is stored strictly on your local PC via `localStorage` and your chosen PC directory using the Web File System Access API.
+## 🧪 Testing
+
+Run the automated test suite verifying static assets, layout, free models, vector embeddings, and streaming guards:
+```bash
+node test.js
+```
 
 ---
 
 ## 📄 License
-MIT License. Built with ❤️ for Roro.
+MIT License. Created for the community.

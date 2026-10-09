@@ -1,4 +1,5 @@
-// Vercel Serverless / Node.js Streaming Chat Endpoint for RoroGPT (Optimized for Low Latency)
+// Universal Streaming Chat Endpoint for RoroGPT (Groq, Gemini, Cerebras, Local Ollama)
+// 100% Free inference with zero paid credits required
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -24,24 +25,69 @@ export default async function handler(req, res) {
 
   const {
     messages = [],
-    model = "google/gemini-2.0-flash-exp:free", // Default to ultra-fast Gemini 2.0 Flash
+    model = "llama-3.3-70b-versatile",
     systemPrompt = "",
     temperature = 0.7,
-    apiKey: clientApiKey = ""
+    apiKey: clientApiKey = "",
+    customEndpoint = ""
   } = body || {};
 
+  const isLocalOllama = model.startsWith("ollama/") || customEndpoint.includes("11434");
+
   const headerKey = req.headers["authorization"]?.replace("Bearer ", "").trim();
-  const envKey = (process.env.OPENROUTER_API_KEY || "").trim();
+  const envKey = (process.env.GROQ_API_KEY || process.env.GEMINI_API_KEY || process.env.CEREBRAS_API_KEY || "").trim();
   const finalApiKey = (clientApiKey && clientApiKey.trim()) || headerKey || envKey;
 
-  if (!finalApiKey || !finalApiKey.startsWith("sk-or-")) {
+  if (!finalApiKey && !isLocalOllama) {
     return res.status(401).json({
-      error: "Missing OpenRouter API Key. Please click Settings ⚙️ and enter your free key from https://openrouter.ai/keys (no credit card needed)."
+      error: "No API key found. Please open Settings ⚙️ and paste your 100% Free API Key from Groq (https://console.groq.com/keys - Instant, no credit card, 500 tok/s) or Google AI Studio (https://aistudio.google.com/apikey - Free 1,500 req/day), or switch to Local Ollama."
     });
   }
 
   if (!Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: "Messages array cannot be empty." });
+  }
+
+  // Determine provider endpoint and target model
+  let endpoint = "https://api.groq.com/openai/v1/chat/completions";
+  let targetModel = model;
+  const upstreamHeaders = {
+    "Content-Type": "application/json"
+  };
+
+  if (finalApiKey) {
+    upstreamHeaders["Authorization"] = `Bearer ${finalApiKey}`;
+  }
+
+  if (customEndpoint && customEndpoint.trim()) {
+    endpoint = customEndpoint.trim();
+  } else if (isLocalOllama) {
+    // Local Ollama / Odysseus
+    endpoint = "http://127.0.0.1:11434/v1/chat/completions";
+    targetModel = model.replace("ollama/", "");
+  } else if (finalApiKey.startsWith("csk-") || model.includes("cerebras") || targetModel === "llama3.3-70b" || targetModel === "llama3.1-8b") {
+    // Cerebras Cloud (Awesome Free API)
+    endpoint = "https://api.cerebras.ai/v1/chat/completions";
+  } else if (finalApiKey.startsWith("AIza") || model.startsWith("gemini-")) {
+    // Google Gemini (100% Free via OpenAI compatible endpoint)
+    endpoint = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+    targetModel = model.replace(":free", "");
+    if (!targetModel.startsWith("gemini-")) {
+      targetModel = "gemini-2.0-flash";
+    }
+  } else if (finalApiKey.startsWith("gsk_") || model.includes("versatile") || model.includes("instant") || model.includes("distill") || model.includes("gemma2") || model.includes("mixtral")) {
+    // Groq (100% Free & Fastest - 500+ tok/s)
+    endpoint = "https://api.groq.com/openai/v1/chat/completions";
+    targetModel = model.replace(":free", "");
+    if (!targetModel.includes("llama") && !targetModel.includes("gemma") && !targetModel.includes("mixtral") && !targetModel.includes("deepseek")) {
+      targetModel = "llama-3.3-70b-versatile";
+    }
+  } else if (finalApiKey.startsWith("sk-or-")) {
+    // OpenRouter fallback (warns if credits needed)
+    endpoint = "https://openrouter.ai/api/v1/chat/completions";
+    upstreamHeaders["HTTP-Referer"] = "https://rorogpt.vercel.app";
+    upstreamHeaders["X-Title"] = "RoroGPT Free Chat";
+    targetModel = model.endsWith(":free") ? model : `${model}:free`;
   }
 
   const formattedMessages = [];
@@ -61,9 +107,7 @@ export default async function handler(req, res) {
     }
   }
 
-  const targetModel = model || "google/gemini-2.0-flash-exp:free";
-
-  const openRouterPayload = {
+  const payload = {
     model: targetModel,
     messages: formattedMessages,
     temperature: typeof temperature === "number" ? temperature : 0.7,
@@ -72,19 +116,14 @@ export default async function handler(req, res) {
   };
 
   try {
-    const upstreamRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const upstreamRes = await fetch(endpoint, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${finalApiKey}`,
-        "HTTP-Referer": "https://rorogpt.vercel.app",
-        "X-Title": "RoroGPT Free Chat"
-      },
-      body: JSON.stringify(openRouterPayload)
+      headers: upstreamHeaders,
+      body: JSON.stringify(payload)
     });
 
     if (!upstreamRes.ok) {
-      let errorMsg = `OpenRouter error (${upstreamRes.status})`;
+      let errorMsg = `Provider error (${upstreamRes.status})`;
       try {
         const errorJson = await upstreamRes.json();
         if (errorJson?.error?.message) {
@@ -94,13 +133,18 @@ export default async function handler(req, res) {
         errorMsg = await upstreamRes.text();
       }
 
+      // Friendly translation for common OpenRouter credit issue
+      if (errorMsg.includes("Insufficient credits") || errorMsg.includes("never purchased credits")) {
+        errorMsg = "OpenRouter requires accounts to purchase credits. Use RoroGPT 100% FREE with ZERO payment by grabbing a free key from Groq (https://console.groq.com/keys - no card needed) or Google AI Studio (https://aistudio.google.com/apikey) and pasting it in Settings ⚙️!";
+      }
+
       return res.status(upstreamRes.status).json({
         error: errorMsg,
         status: upstreamRes.status
       });
     }
 
-    // Streaming SSE headers
+    // Set streaming headers for real-time instant response
     res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
@@ -110,7 +154,6 @@ export default async function handler(req, res) {
       res.flushHeaders();
     }
 
-    // Immediate keepalive
     res.write(": connected\n\n");
 
     const reader = upstreamRes.body.getReader();
@@ -129,14 +172,14 @@ export default async function handler(req, res) {
         const trimmed = line.trim();
         if (!trimmed) continue;
         if (trimmed.startsWith("data: ")) {
-          const payload = trimmed.slice(6);
-          if (payload === "[DONE]") {
+          const rawData = trimmed.slice(6);
+          if (rawData === "[DONE]") {
             res.write("data: [DONE]\n\n");
             continue;
           }
 
           try {
-            const parsed = JSON.parse(payload);
+            const parsed = JSON.parse(rawData);
             const delta = parsed.choices?.[0]?.delta || {};
             const content = delta.content || "";
             const reasoning = delta.reasoning || delta.reasoning_content || "";
@@ -157,8 +200,8 @@ export default async function handler(req, res) {
     }
 
     if (buffer.trim().startsWith("data: ")) {
-      const payload = buffer.trim().slice(6);
-      if (payload === "[DONE]") {
+      const rawData = buffer.trim().slice(6);
+      if (rawData === "[DONE]") {
         res.write("data: [DONE]\n\n");
       }
     }
@@ -167,7 +210,7 @@ export default async function handler(req, res) {
     return res.end();
   } catch (err) {
     if (!res.headersSent) {
-      return res.status(500).json({ error: `Server Error: ${err.message}` });
+      return res.status(500).json({ error: `Connection Error: ${err.message}` });
     } else {
       res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
       return res.end();

@@ -1,10 +1,10 @@
 /**
  * 🌈 ROROGPT - Modern, Colorful Free AI Chat Web App
- * Powered by OpenRouter Free Tier Models & Vercel
+ * Powered by 100% Free AI Models (Groq, Gemini, Cerebras, Local Ollama) & Vercel
  */
 
-// Default Configuration: 100% Free & Fastest Model by Default
-const DEFAULT_CHAT_MODEL = "google/gemini-2.0-flash-exp:free";
+// Default Configuration: 100% Free & Fastest Model by Default (Groq Llama 3.3 70B or Gemini Flash)
+const DEFAULT_CHAT_MODEL = "llama-3.3-70b-versatile";
 const DEFAULT_EMBEDDING_MODEL = "free-fast-vector";
 
 // State
@@ -344,22 +344,41 @@ async function fetchModels() {
 }
 
 function updateApiKeyBadge(hasServerKey) {
-  const hasUserKey = Boolean(state.apiKey && state.apiKey.startsWith("sk-or-"));
+  const k = (state.apiKey || "").trim();
+  const hasUserKey = k.length > 5;
   const dot = DOM.apiKeyStatusBadge.querySelector(".status-dot");
   const text = DOM.apiKeyStatusBadge.querySelector(".status-text");
 
-  if (hasUserKey) {
+  if (k.startsWith("gsk_")) {
+    dot.className = "status-dot active";
+    text.textContent = "⚡ Groq Free Key Active";
+    DOM.apiKeyStatusBadge.title = "Connected to Groq (100% Free, 500 tok/s)";
+  } else if (k.startsWith("AIza")) {
+    dot.className = "status-dot active";
+    text.textContent = "🌟 Gemini Free Key Active";
+    DOM.apiKeyStatusBadge.title = "Connected to Google AI Studio (100% Free)";
+  } else if (k.startsWith("csk-")) {
+    dot.className = "status-dot active";
+    text.textContent = "⚡ Cerebras Key Active";
+    DOM.apiKeyStatusBadge.title = "Connected to Cerebras Cloud (1800+ tok/s)";
+  } else if (state.activeModel.startsWith("ollama/")) {
+    dot.className = "status-dot active";
+    text.textContent = "💻 Local Ollama (Offline)";
+    DOM.apiKeyStatusBadge.title = "Connected to Local Ollama (0 Keys Required)";
+  } else if (k.startsWith("sk-or-")) {
+    dot.className = "status-dot active";
+    text.textContent = "OpenRouter Key Active";
+    DOM.apiKeyStatusBadge.title = "Connected to OpenRouter";
+  } else if (hasUserKey) {
     dot.className = "status-dot active";
     text.textContent = "Custom Key Active";
-    DOM.apiKeyStatusBadge.title = "Using user API key stored in browser";
   } else if (hasServerKey) {
     dot.className = "status-dot active";
     text.textContent = "Server Key Connected";
-    DOM.apiKeyStatusBadge.title = "Using server environment key";
   } else {
     dot.className = "status-dot";
-    text.textContent = "No API Key Set";
-    DOM.apiKeyStatusBadge.title = "Click Settings to enter your OpenRouter key";
+    text.textContent = "No Free Key Set";
+    DOM.apiKeyStatusBadge.title = "Click Settings to paste your 100% free Groq or Gemini key";
   }
 }
 

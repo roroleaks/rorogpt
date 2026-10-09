@@ -1,91 +1,139 @@
-// Strictly Free OpenRouter Models Provider
-// Every model in this list is 100% free ($0.00 / token, no credit card or paid key required)
+// 100% Free AI Models Provider (Zero Paid Keys, Zero Subscription, Zero Credit Card)
+// Supports: Groq (100% Free & World's Fastest), Google Gemini (100% Free), Cerebras (Ultra-Fast), and Local Ollama / Odysseus
 
-export const CURATED_FREE_MODELS = [
-  {
-    id: "google/gemini-2.0-flash-exp:free",
-    name: "Gemini 2.0 Flash",
-    speed: "⚡ Instant (~1s)",
-    badge: "★ Best & Fastest",
-    color: "#10b981", // Emerald
-    icon: "⚡",
-    context: "1M",
-    description: "Ultra-fast response with zero thinking delay. Huge 1M context window. 100% Free."
-  },
-  {
-    id: "meta-llama/llama-3.3-70b-instruct:free",
-    name: "Llama 3.3 70B",
-    speed: "🚀 Fast (~3s)",
-    badge: "Top Intelligence",
-    color: "#8b5cf6", // Purple
-    icon: "🦙",
-    context: "128K",
-    description: "Meta's flagship 70B model. Superior reasoning, coding, and general knowledge. 100% Free."
-  },
-  {
-    id: "meta-llama/llama-3.1-8b-instruct:free",
-    name: "Llama 3.1 8B",
-    speed: "⚡ Instant (~1s)",
-    badge: "Ultra Fast",
-    color: "#6366f1", // Indigo
-    icon: "🚀",
-    context: "128K",
-    description: "Extremely fast and lightweight model for instant answers and casual conversations. 100% Free."
-  },
-  {
-    id: "qwen/qwen-2.5-coder-32b-instruct:free",
-    name: "Qwen 2.5 Coder 32B",
-    speed: "💻 Fast (~3s)",
-    badge: "Best for Code",
-    color: "#f59e0b", // Amber
-    icon: "💻",
-    context: "32K",
-    description: "Specialized in Python, JS, debugging, algorithms, and clean architecture. 100% Free."
-  },
-  {
-    id: "mistralai/mistral-small-24b-instruct-2501:free",
-    name: "Mistral Small 24B",
-    speed: "🌪️ Fast (~3s)",
-    badge: "Balanced",
-    color: "#ec4899", // Pink
-    icon: "🌪️",
-    context: "32K",
-    description: "Mistral's latest efficient model. Crisp, concise, and nuanced answers. 100% Free."
-  },
-  {
-    id: "deepseek/deepseek-chat:free",
-    name: "DeepSeek V3",
-    speed: "✨ Fast (~3s)",
-    badge: "Smart",
-    color: "#06b6d4", // Cyan
-    icon: "✨",
-    context: "64K",
-    description: "DeepSeek mixture-of-experts general chat model. Smart and versatile. 100% Free."
-  },
-  {
-    id: "openrouter/free",
-    name: "OpenRouter Free Router",
-    speed: "🤖 Variable (~2-4s)",
-    badge: "Auto Free",
-    color: "#a855f7", // Fuchsia
-    icon: "🤖",
-    context: "Auto",
-    description: "Routes requests automatically across available free models on OpenRouter. 100% Free."
-  },
-  {
-    id: "deepseek/deepseek-r1:free",
-    name: "DeepSeek R1",
-    speed: "🧠 Thinking (~30-90s)",
-    badge: "Deep Reasoning",
-    color: "#3b82f6", // Electric Blue
-    icon: "🧠",
-    context: "64K",
-    description: "Chain-of-thought thinking model. Takes longer to solve complex math and logic. 100% Free."
-  }
-];
+export const FREE_MODELS_BY_PROVIDER = {
+  groq: [
+    {
+      id: "llama-3.3-70b-versatile",
+      name: "Llama 3.3 70B (Groq)",
+      provider: "groq",
+      speed: "⚡ 500 tok/s (~0.3s)",
+      badge: "★ Best & Fastest",
+      color: "#f59e0b",
+      icon: "⚡",
+      context: "128K",
+      description: "100% Free on Groq. Meta's flagship 70B intelligence running on ultra-fast LPU hardware with zero wait time."
+    },
+    {
+      id: "llama-3.1-8b-instant",
+      name: "Llama 3.1 8B (Groq)",
+      provider: "groq",
+      speed: "🚀 800 tok/s (Instant)",
+      badge: "Instant 0.2s",
+      color: "#10b981",
+      icon: "🚀",
+      context: "128K",
+      description: "100% Free on Groq. Instant 8B model. Generates full answers in 0.2 seconds flat."
+    },
+    {
+      id: "deepseek-r1-distill-llama-70b",
+      name: "DeepSeek R1 70B (Groq)",
+      provider: "groq",
+      speed: "🧠 350 tok/s (~2-4s)",
+      badge: "Fast Reasoning",
+      color: "#3b82f6",
+      icon: "🧠",
+      context: "128K",
+      description: "100% Free on Groq. Deep reasoning model with step-by-step thinking in 2-4 seconds instead of 2 minutes."
+    },
+    {
+      id: "gemma2-9b-it",
+      name: "Gemma 2 9B (Groq)",
+      provider: "groq",
+      speed: "⚡ 650 tok/s (~0.3s)",
+      badge: "Google Gemma",
+      color: "#06b6d4",
+      icon: "✨",
+      context: "8K",
+      description: "100% Free on Groq. Google's efficient, precise instruction model."
+    },
+    {
+      id: "mixtral-8x7b-32768",
+      name: "Mixtral 8x7B (Groq)",
+      provider: "groq",
+      speed: "🌪️ 450 tok/s (~0.4s)",
+      badge: "MoE 32K",
+      color: "#ec4899",
+      icon: "🌪️",
+      context: "32K",
+      description: "100% Free on Groq. Mistral's mixture-of-experts model for versatile instruction following."
+    }
+  ],
+  gemini: [
+    {
+      id: "gemini-2.0-flash",
+      name: "Gemini 2.0 Flash (Google)",
+      provider: "gemini",
+      speed: "⚡ Sub-second (~0.7s)",
+      badge: "1M Context",
+      color: "#10b981",
+      icon: "⚡",
+      context: "1M",
+      description: "100% Free at Google AI Studio (1,500 req/day). Sub-second response time with giant 1M context."
+    },
+    {
+      id: "gemini-1.5-flash",
+      name: "Gemini 1.5 Flash (Google)",
+      provider: "gemini",
+      speed: "⚡ Sub-second (~0.8s)",
+      badge: "Stable 1M",
+      color: "#06b6d4",
+      icon: "✨",
+      context: "1M",
+      description: "100% Free at Google AI Studio. Fast multimodal assistant with reliable performance."
+    }
+  ],
+  cerebras: [
+    {
+      id: "llama3.3-70b",
+      name: "Llama 3.3 70B (Cerebras)",
+      provider: "cerebras",
+      speed: "⚡ 1800 tok/s (~0.2s)",
+      badge: "Awesome Free API",
+      color: "#8b5cf6",
+      icon: "⚡",
+      context: "128K",
+      description: "100% Free tier from Cerebras Cloud. World-record 1800+ tokens/sec inference speed."
+    },
+    {
+      id: "llama3.1-8b",
+      name: "Llama 3.1 8B (Cerebras)",
+      provider: "cerebras",
+      speed: "⚡ 2100 tok/s (Real-time)",
+      badge: "Awesome Free API",
+      color: "#14b8a6",
+      icon: "🚀",
+      context: "128K",
+      description: "100% Free tier from Cerebras Cloud. Super-fast lightweight inference."
+    }
+  ],
+  local: [
+    {
+      id: "ollama/llama3",
+      name: "Ollama Llama 3 (Odysseus)",
+      provider: "local",
+      speed: "💻 Local Hardware",
+      badge: "100% Offline",
+      color: "#64748b",
+      icon: "💻",
+      context: "Local",
+      description: "100% Free & Offline. Runs on your own PC via Ollama (Odysseus style) with zero keys."
+    },
+    {
+      id: "ollama/deepseek-r1",
+      name: "Ollama DeepSeek R1 (Odysseus)",
+      provider: "local",
+      speed: "💻 Local Hardware",
+      badge: "100% Offline",
+      color: "#3b82f6",
+      icon: "🧠",
+      context: "Local",
+      description: "100% Free & Offline. Run DeepSeek R1 locally on your machine with total privacy."
+    }
+  ]
+};
 
 export default async function handler(req, res) {
-  // Set CORS headers
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
@@ -94,89 +142,52 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  try {
-    const apiKey = req.headers["authorization"]?.replace("Bearer ", "") || process.env.OPENROUTER_API_KEY;
+  // Combined curated list of 100% strictly free models
+  const allModels = [
+    ...FREE_MODELS_BY_PROVIDER.groq,
+    ...FREE_MODELS_BY_PROVIDER.gemini,
+    ...FREE_MODELS_BY_PROVIDER.cerebras,
+    ...FREE_MODELS_BY_PROVIDER.local
+  ];
 
-    let dynamicFreeModels = [];
-
-    // Dynamically discover newly added free models on OpenRouter
-    try {
-      const headers = {
-        "HTTP-Referer": "https://rorogpt.vercel.app",
-        "X-Title": "RoroGPT"
-      };
-      if (apiKey && apiKey.startsWith("sk-or-")) {
-        headers["Authorization"] = `Bearer ${apiKey}`;
+  return res.status(200).json({
+    success: true,
+    hasServerKey: Boolean(
+      process.env.GROQ_API_KEY ||
+      process.env.GEMINI_API_KEY ||
+      process.env.CEREBRAS_API_KEY
+    ),
+    defaultModel: "llama-3.3-70b-versatile",
+    providers: [
+      {
+        id: "groq",
+        name: "Groq (Recommended - 100% Free & Fastest)",
+        keyPrefix: "gsk_",
+        keyUrl: "https://console.groq.com/keys",
+        description: "Zero cost, no credit card required, 14,400 requests/day, 500 tokens/sec!"
+      },
+      {
+        id: "gemini",
+        name: "Google AI Studio (100% Free)",
+        keyPrefix: "AIza",
+        keyUrl: "https://aistudio.google.com/apikey",
+        description: "Zero cost, no credit card required, 1,500 requests/day, 1M context!"
+      },
+      {
+        id: "cerebras",
+        name: "Cerebras Cloud (Awesome Free API)",
+        keyPrefix: "csk-",
+        keyUrl: "https://cloud.cerebras.ai",
+        description: "World's fastest inference (1800+ tok/s), 100% free tier, zero card."
+      },
+      {
+        id: "local",
+        name: "Local Ollama / Odysseus (100% Offline)",
+        keyPrefix: "local",
+        keyUrl: "https://ollama.com",
+        description: "Zero API keys needed, 100% private, runs entirely on your local PC."
       }
-
-      const orResponse = await fetch("https://openrouter.ai/api/v1/models", {
-        headers,
-        signal: AbortSignal.timeout(3500)
-      });
-
-      if (orResponse.ok) {
-        const data = await orResponse.json();
-        if (Array.isArray(data.data)) {
-          dynamicFreeModels = data.data
-            // STRICT FILTER: Only models ending in :free or openrouter/free, and absolutely NOT audio/song pricing
-            .filter(m => {
-              if (!m || !m.id) return false;
-              const isFreeId = m.id.endsWith(":free") || m.id === "openrouter/free";
-              const isAudioOrPaid = m.id.includes("lyria") || m.id.includes("paid");
-              const hasZeroPrice = !m.pricing || (
-                Number(m.pricing.prompt || 0) === 0 &&
-                Number(m.pricing.completion || 0) === 0 &&
-                Number(m.pricing.request || 0) === 0 &&
-                Number(m.pricing.image || 0) === 0
-              );
-              return isFreeId && !isAudioOrPaid && hasZeroPrice;
-            })
-            .map(m => {
-              const curated = CURATED_FREE_MODELS.find(c => c.id === m.id);
-              return curated || {
-                id: m.id,
-                name: m.name || m.id.split("/").pop().replace(":free", ""),
-                speed: "⚡ Free Model",
-                badge: "Free",
-                color: "#06b6d4",
-                icon: "✨",
-                context: m.context_length ? `${Math.round(m.context_length / 1024)}K` : "Free",
-                description: m.description ? m.description.slice(0, 110) + "..." : "100% Free OpenRouter Model"
-              };
-            });
-        }
-      }
-    } catch {
-      // Fallback to curated list
-    }
-
-    const seen = new Set();
-    const finalModels = [];
-
-    for (const m of CURATED_FREE_MODELS) {
-      if (!seen.has(m.id)) {
-        seen.add(m.id);
-        finalModels.push(m);
-      }
-    }
-
-    for (const m of dynamicFreeModels) {
-      if (!seen.has(m.id)) {
-        seen.add(m.id);
-        finalModels.push(m);
-      }
-    }
-
-    return res.status(200).json({
-      success: true,
-      hasServerKey: Boolean(process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_API_KEY.trim().length > 5),
-      models: finalModels
-    });
-  } catch (error) {
-    return res.status(200).json({
-      success: true,
-      hasServerKey: Boolean(process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_API_KEY.trim().length > 5),
-      models: CURATED_FREE_MODELS
-    });
-  }
+    ],
+    models: allModels
+  });
 }

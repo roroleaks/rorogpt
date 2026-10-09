@@ -123,8 +123,8 @@
             <!-- Quick Model Dropdown Menu -->
             <div class="model-dropdown-menu" id="modelDropdownMenu">
               <div class="dropdown-header">
-                <span>Select Free OpenRouter Model</span>
-                <span class="free-pill">100% Free</span>
+                <span>Select 100% Free AI Model</span>
+                <span class="free-pill">⚡ Ultra Fast</span>
               </div>
               <div class="dropdown-models-list" id="dropdownModelsList">
                 <!-- Injected dynamically -->
@@ -192,12 +192,12 @@
               </span>
               Welcome to <span class="gradient-text">RoroGPT</span>
             </h1>
-            <p class="welcome-subtitle">Classic GPT chat powered by the world's best free AI models via OpenRouter. Fast, unlimited, and fully customizable.</p>
+            <p class="welcome-subtitle">Classic GPT chat powered by 100% free high-speed AI (Groq LPU & Gemini). Instant responses in under 1 second, zero subscription, and zero card required.</p>
             
             <div class="active-badge-bar">
               <div class="active-pill">
                 <span class="pulsing-dot"></span>
-                <span>Active Model: <strong id="welcomeActiveModel">Gemini 2.0 Flash (⚡ Instant & Free)</strong></span>
+                <span>Active Model: <strong id="welcomeActiveModel">Llama 3.3 70B (⚡ Instant & Free)</strong></span>
               </div>
               <div class="active-pill openrouter-free">
                 <span>100% Free Tier • 0 Cost</span>
@@ -282,7 +282,7 @@
         </div>
 
         <div class="footer-disclaimer">
-          RoroGPT uses free models via OpenRouter. AI output may occasionally make errors. Verify critical information.
+          RoroGPT runs on 100% free high-speed AI models. Chats auto-save directly to your PC — zero cloud data retention.
         </div>
       </div>
     </main>
@@ -303,14 +303,21 @@
         <!-- API Key Section -->
         <div class="form-group">
           <label for="apiKeyInput" class="form-label">
-            <span>OpenRouter API Key</span>
-            <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" class="link-label">Get free key ↗</a>
+            <span>Free AI API Key (Groq / Gemini / OpenRouter)</span>
           </label>
           <div class="input-with-action">
-            <input type="password" id="apiKeyInput" placeholder="sk-or-v1-xxxxxxxx..." autocomplete="off">
+            <input type="password" id="apiKeyInput" placeholder="gsk_... (Groq) or AIza... (Gemini) or sk-or-... (OpenRouter)" autocomplete="off">
             <button class="input-action-btn" id="toggleApiKeyVisibility" title="Show/Hide">👁️</button>
           </div>
-          <small class="form-hint">Stored safely in your browser. Leave blank if you already configured <code>OPENROUTER_API_KEY</code> on Vercel or in <code>.env</code>.</small>
+          <div class="provider-shortcuts">
+            <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer" class="provider-badge groq">
+              ⚡ Get Free Groq Key (Recommended • No Card • 500 tok/s) ↗
+            </a>
+            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" class="provider-badge gemini">
+              🌟 Get Free Gemini Key (Google • 1,500 req/day) ↗
+            </a>
+          </div>
+          <small class="form-hint">Stored safely in browser. Groq and Gemini keys are <strong>100% Free</strong> with no credit card or purchase ever required.</small>
         </div>
 
         <!-- Custom System Prompt -->
@@ -407,16 +414,16 @@
         <!-- Tab 1: Chat Models -->
         <div class="tab-pane active" id="tabChatModels">
           <div class="tab-description">
-            Choose your active chat model. <strong>Llama 3.3 70B</strong> is set as the best default, but you can switch to any free model or enter any custom OpenRouter model.
+            Choose your active chat model. <strong>Llama 3.3 70B (Groq)</strong> is set as the best default (500 tok/s), or switch to Gemini 2.0 Flash, Cerebras, or Local Ollama.
           </div>
           <div class="models-grid" id="fullModelsGrid">
             <!-- Populated by JS -->
           </div>
 
           <div class="custom-model-box">
-            <label class="form-label">Or use any custom OpenRouter model ID:</label>
+            <label class="form-label">Or enter any custom model ID (Groq / Gemini / Local Ollama):</label>
             <div class="custom-model-input-row">
-              <input type="text" id="customModelInput" placeholder="e.g. meta-llama/llama-3.3-70b-instruct:free or anthropic/claude-3.5-sonnet">
+              <input type="text" id="customModelInput" placeholder="e.g. llama-3.3-70b-versatile or gemini-2.0-flash or ollama/llama3">
               <button class="btn btn-primary" id="applyCustomModelBtn">Apply Model</button>
             </div>
           </div>

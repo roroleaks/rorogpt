@@ -1678,6 +1678,44 @@ code:not(pre code) {
   font-size: 1rem;
 }
 
+.provider-shortcuts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.provider-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 0.76rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: var(--transition);
+}
+
+.provider-badge.groq {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #f59e0b;
+}
+
+.provider-badge.groq:hover {
+  background: rgba(245, 158, 11, 0.22);
+}
+
+.provider-badge.gemini {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: #10b981;
+}
+
+.provider-badge.gemini:hover {
+  background: rgba(16, 185, 129, 0.22);
+}
+
 .form-hint {
   font-size: 0.74rem;
   color: var(--text-faint);
