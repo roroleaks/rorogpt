@@ -62,8 +62,8 @@ async function runTests() {
   assert(htmlContent.includes("sidebar-creator-attribution") && htmlContent.includes("Dr Raouf Roshdy"), "Sidebar attribution 'Created by Dr Raouf Roshdy' is present");
   assert(htmlContent.includes("creator-sidebar-avatar"), "Creator photo icon is present in sidebar");
   assert(!htmlContent.includes("footer-creator-credit"), "Bottom duplicate creator credit removed (no duplicate)");
-  assert(!htmlContent.includes("candy-pop"), "No white/light theme in index.html (all dark themes)");
-  assert(htmlContent.includes("emerald-matrix"), "Vibrant dark theme 'Emerald Matrix' is present");
+  assert(htmlContent.includes("clean-light"), "Clean Daylight light theme is available in menu");
+  assert(htmlContent.includes("emerald-matrix"), "Vibrant dark theme 'Emerald Matrix' is present in menu");
   assert(htmlContent.includes("sidebarBackdrop"), "Mobile sidebar backdrop overlay is present");
 
   // TEST SUITE 3: HTTP Server & Strict Free Models Validation
