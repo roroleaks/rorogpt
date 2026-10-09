@@ -121,7 +121,8 @@ server.listen(PORT, () => {
   console.log("   🌈 RoroGPT - Colorful Free AI Chat (Vercel Ready)     ");
   console.log("========================================================");
   console.log(`   🚀 Local Server: http://localhost:${PORT}`);
-  console.log(`   🔑 API Key:     ${process.env.OPENROUTER_API_KEY ? "Configured in .env ✅" : "Not set (enter in UI Settings) ⚠️"}`);
+  const hasKey = Boolean(process.env.GROQ_API_KEY || process.env.GEMINI_API_KEY || process.env.CEREBRAS_API_KEY);
+  console.log(`   🔑 API Key:     ${hasKey ? "Free Key Configured in .env ✅" : "Not set (enter in UI Settings) ⚠️"}`);
   console.log("   ☁️  Deploy:      Ready for Vercel deployment");
   console.log("========================================================\n");
 });

@@ -1,4 +1,4 @@
-// Universal Streaming Chat Endpoint for RoroGPT (Groq, Gemini, Cerebras, Local Ollama)
+// Universal High-Performance Streaming Chat Endpoint for RoroGPT (Groq, Gemini, Cerebras, Local Ollama)
 // 100% Free inference with zero paid credits required
 
 export default async function handler(req, res) {
@@ -62,25 +62,21 @@ export default async function handler(req, res) {
   if (customEndpoint && customEndpoint.trim()) {
     endpoint = customEndpoint.trim();
   } else if (isLocalOllama) {
-    // Local Ollama / Odysseus
     endpoint = "http://127.0.0.1:11434/v1/chat/completions";
     targetModel = model.replace("ollama/", "");
   } else if (finalApiKey.startsWith("csk-") || model.includes("cerebras") || targetModel === "llama3.3-70b" || targetModel === "llama3.1-8b") {
-    // Cerebras Cloud (Awesome Free API)
     endpoint = "https://api.cerebras.ai/v1/chat/completions";
   } else if (finalApiKey.startsWith("AIza") || model.startsWith("gemini-")) {
-    // Google Gemini (100% Free via OpenAI compatible endpoint)
     endpoint = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
     targetModel = model.replace(":free", "");
     if (!targetModel.startsWith("gemini-")) {
       targetModel = "gemini-2.0-flash";
     }
   } else if (finalApiKey.startsWith("gsk_") || model.includes("qwen") || model.includes("gpt-oss") || model.includes("allam") || model.includes("llama") || model.includes("versatile") || model.includes("instant") || model.includes("distill")) {
-    // Groq (100% Free & Fastest - 500+ tok/s)
     endpoint = "https://api.groq.com/openai/v1/chat/completions";
     targetModel = model.replace(":free", "");
 
-    // Robust model translation to Groq's active models (prevents "model does not exist" errors)
+    // Robust model translation to active Groq models (prevents "model does not exist" errors)
     if (targetModel.includes("120b") || targetModel.includes("r1") || targetModel.includes("70b")) {
       targetModel = "openai/gpt-oss-120b";
     } else if (targetModel.includes("20b")) {
@@ -90,11 +86,9 @@ export default async function handler(req, res) {
     } else if (targetModel.includes("qwen")) {
       targetModel = "qwen/qwen3.8-27b";
     } else {
-      // Default fallback for any deprecated llama-3.1/3.3 model on Groq
       targetModel = "qwen/qwen3.8-27b";
     }
   } else if (finalApiKey.startsWith("sk-or-")) {
-    // OpenRouter fallback (warns if credits needed)
     endpoint = "https://openrouter.ai/api/v1/chat/completions";
     upstreamHeaders["HTTP-Referer"] = "https://rorogpt.vercel.app";
     upstreamHeaders["X-Title"] = "RoroGPT Free Chat";
@@ -126,11 +120,16 @@ export default async function handler(req, res) {
     stream: true
   };
 
+  // Upstream connection management with early abort on client disconnect
+  const abortController = new AbortController();
+  req.on("close", () => abortController.abort());
+
   try {
     const upstreamRes = await fetch(endpoint, {
       method: "POST",
       headers: upstreamHeaders,
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: abortController.signal
     });
 
     if (!upstreamRes.ok) {
@@ -144,7 +143,6 @@ export default async function handler(req, res) {
         errorMsg = await upstreamRes.text();
       }
 
-      // Friendly translation for common OpenRouter credit issue
       if (errorMsg.includes("Insufficient credits") || errorMsg.includes("never purchased credits")) {
         errorMsg = "OpenRouter requires accounts to purchase credits. Use RoroGPT 100% FREE with ZERO payment by grabbing a free key from Groq (https://console.groq.com/keys - no card needed) or Google AI Studio (https://aistudio.google.com/apikey) and pasting it in Settings ⚙️!";
       }
@@ -155,7 +153,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // Set streaming headers for real-time instant response
+    // Set streaming headers for instant real-time response
     res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
@@ -185,7 +183,6 @@ export default async function handler(req, res) {
         if (trimmed.startsWith("data: ")) {
           const rawData = trimmed.slice(6);
           if (rawData === "[DONE]") {
-            res.write("data: [DONE]\n\n");
             continue;
           }
 
@@ -210,16 +207,12 @@ export default async function handler(req, res) {
       }
     }
 
-    if (buffer.trim().startsWith("data: ")) {
-      const rawData = buffer.trim().slice(6);
-      if (rawData === "[DONE]") {
-        res.write("data: [DONE]\n\n");
-      }
-    }
-
     res.write("data: [DONE]\n\n");
     return res.end();
   } catch (err) {
+    if (abortController.signal.aborted) {
+      return res.end();
+    }
     if (!res.headersSent) {
       return res.status(500).json({ error: `Connection Error: ${err.message}` });
     } else {

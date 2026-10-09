@@ -241,21 +241,6 @@ function renderMarkdown(rawText) {
       </button>
     `;
 
-    const copyBtn = header.querySelector(".copy-code-btn");
-    copyBtn.addEventListener("click", () => {
-      navigator.clipboard.writeText(code.innerText).then(() => {
-        copyBtn.innerHTML = `<span>✓ Copied!</span>`;
-        copyBtn.style.color = "#10b981";
-        setTimeout(() => {
-          copyBtn.innerHTML = `
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-            <span>Copy</span>
-          `;
-          copyBtn.style.color = "";
-        }, 1800);
-      });
-    });
-
     pre.parentNode.insertBefore(wrapper, pre);
     wrapper.appendChild(header);
     wrapper.appendChild(pre);
@@ -922,7 +907,8 @@ function appendMessageElement(msg, index) {
   const copyBtn = row.querySelector(".copy-msg-btn");
   if (copyBtn) {
     copyBtn.addEventListener("click", () => {
-      navigator.clipboard.writeText(msg.content).then(() => {
+      const liveText = msg.content || row.querySelector(".bubble-text")?.innerText || "";
+      navigator.clipboard.writeText(liveText).then(() => {
         copyBtn.querySelector("span").textContent = "Copied!";
         setTimeout(() => { copyBtn.querySelector("span").textContent = "Copy"; }, 1500);
       });
@@ -932,7 +918,10 @@ function appendMessageElement(msg, index) {
   // Attach speak button
   const speakBtn = row.querySelector(".speak-msg-btn");
   if (speakBtn) {
-    speakBtn.addEventListener("click", () => speakText(msg.content, speakBtn));
+    speakBtn.addEventListener("click", () => {
+      const liveText = msg.content || row.querySelector(".bubble-text")?.innerText || "";
+      speakText(liveText, speakBtn);
+    });
   }
 
   DOM.messagesContainer.appendChild(row);
@@ -1064,6 +1053,17 @@ async function sendMessage() {
     const decoder = new TextDecoder("utf-8");
     let buffer = "";
 
+    let renderScheduled = false;
+    function scheduleRender() {
+      if (renderScheduled) return;
+      renderScheduled = true;
+      requestAnimationFrame(() => {
+        renderScheduled = false;
+        bubbleText.innerHTML = renderMarkdown(botMsg.content);
+        scrollToBottom();
+      });
+    }
+
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -1090,8 +1090,7 @@ async function sendMessage() {
 
             if (data.content) {
               botMsg.content += data.content;
-              bubbleText.innerHTML = renderMarkdown(botMsg.content);
-              scrollToBottom();
+              scheduleRender();
             }
           } catch (e) {
             if (payload !== "[DONE]") {
@@ -1101,6 +1100,10 @@ async function sendMessage() {
         }
       }
     }
+
+    // Final clean render to ensure complete formatting and syntax highlighting
+    bubbleText.innerHTML = renderMarkdown(botMsg.content);
+    scrollToBottom();
 
     sfx.playReceive();
   } catch (err) {
@@ -1230,6 +1233,29 @@ function initEvents() {
     if (state.abortController) {
       state.abortController.abort();
     }
+  });
+
+  // Delegated Code Copy Handler
+  DOM.messagesContainer.addEventListener("click", (e) => {
+    const copyBtn = e.target.closest(".copy-code-btn");
+    if (!copyBtn) return;
+    const wrapper = copyBtn.closest(".code-block-wrapper");
+    const codeEl = wrapper ? wrapper.querySelector("pre code") : null;
+    if (!codeEl) return;
+
+    navigator.clipboard.writeText(codeEl.innerText).then(() => {
+      copyBtn.innerHTML = `<span>✓ Copied!</span>`;
+      copyBtn.style.color = "#10b981";
+      setTimeout(() => {
+        copyBtn.innerHTML = `
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+          <span>Copy</span>
+        `;
+        copyBtn.style.color = "";
+      }, 1800);
+    }).catch(() => {
+      showToast("Unable to copy code", "error");
+    });
   });
 
   // New Chat
