@@ -1,0 +1,127 @@
+import http from "node:http";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import "dotenv/config";
+
+// Handlers
+import chatHandler from "./api/chat.js";
+import modelsHandler from "./api/models.js";
+import embeddingsHandler from "./api/embeddings.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const PUBLIC_DIR = path.join(__dirname, "public");
+
+const PORT = process.env.PORT || 3000;
+
+const MIME_TYPES = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".ico": "image/x-icon",
+  ".woff2": "font/woff2"
+};
+
+// Mock express/vercel-style response helpers for native http server
+function enhanceResponse(res) {
+  res.status = function (code) {
+    res.statusCode = code;
+    return res;
+  };
+  res.json = function (data) {
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.end(JSON.stringify(data));
+    return res;
+  };
+  res.send = function (data) {
+    res.end(data);
+    return res;
+  };
+  return res;
+}
+
+// Parse request body
+function parseBody(req) {
+  return new Promise((resolve) => {
+    let raw = "";
+    req.on("data", chunk => { raw += chunk; });
+    req.on("end", () => {
+      try {
+        resolve(raw ? JSON.parse(raw) : {});
+      } catch {
+        resolve(raw);
+      }
+    });
+  });
+}
+
+const server = http.createServer(async (req, res) => {
+  enhanceResponse(res);
+
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const pathname = url.pathname;
+
+  // API Routes
+  if (pathname === "/api/chat") {
+    req.body = await parseBody(req);
+    return chatHandler(req, res);
+  }
+
+  if (pathname === "/api/models") {
+    req.body = await parseBody(req);
+    return modelsHandler(req, res);
+  }
+
+  if (pathname === "/api/embeddings") {
+    req.body = await parseBody(req);
+    return embeddingsHandler(req, res);
+  }
+
+  // Static files
+  let safePath = path.normalize(pathname).replace(/^(\.\.[\/\\])+/, "");
+  if (safePath === "/" || safePath === "\\") {
+    safePath = "/index.html";
+  }
+
+  let filePath = path.join(PUBLIC_DIR, safePath);
+
+  // If path doesn't exist, try appending .html or fallback to index.html
+  if (!fs.existsSync(filePath)) {
+    if (fs.existsSync(filePath + ".html")) {
+      filePath = filePath + ".html";
+    } else {
+      filePath = path.join(PUBLIC_DIR, "index.html");
+    }
+  }
+
+  try {
+    const stats = fs.statSync(filePath);
+    if (stats.isDirectory()) {
+      filePath = path.join(filePath, "index.html");
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+    const contentType = MIME_TYPES[ext] || "application/octet-stream";
+
+    res.writeHead(200, { "Content-Type": contentType });
+    const stream = fs.createReadStream(filePath);
+    stream.pipe(res);
+  } catch {
+    res.status(404).json({ error: "File not found" });
+  }
+});
+
+server.listen(PORT, () => {
+  console.log("\n========================================================");
+  console.log("   🌈 RoroGPT - Colorful Free AI Chat (Vercel Ready)     ");
+  console.log("========================================================");
+  console.log(`   🚀 Local Server: http://localhost:${PORT}`);
+  console.log(`   🔑 API Key:     ${process.env.OPENROUTER_API_KEY ? "Configured in .env ✅" : "Not set (enter in UI Settings) ⚠️"}`);
+  console.log("   ☁️  Deploy:      Ready for Vercel deployment");
+  console.log("========================================================\n");
+});

@@ -1,0 +1,23 @@
+{
+  "name": "rorogpt",
+  "version": "1.0.0",
+  "description": "RoroGPT - Colorful, Free AI Chat Web App powered by OpenRouter Free Models",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": [
+    "rorogpt",
+    "openrouter",
+    "chatgpt-clone",
+    "free-ai",
+    "vercel"
+  ],
+  "author": "Roro",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.7"
+  }
+}

@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="neon-aurora">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RoroGPT - Colorful Free AI Chat</title>
+  <link rel="icon" type="image/jpeg" href="/logo.jpg">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <!-- Highlight.js for Syntax Highlighting -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
+  <!-- Marked for Markdown Parsing -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+  <!-- KaTeX for Math rendering -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+
+  <!-- Main Style -->
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="brand">
+          <div class="brand-icon">
+            <img src="/logo.jpg" alt="RoroGPT Logo" class="brand-avatar-img">
+          </div>
+          <div class="brand-text">
+            <span class="brand-title">RoroGPT</span>
+            <span class="brand-tag">Free AI</span>
+          </div>
+        </div>
+        <button class="icon-btn close-sidebar-btn" id="closeSidebarBtn" title="Close sidebar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <div class="sidebar-action">
+        <button class="new-chat-btn" id="newChatBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          <span>New Chat</span>
+        </button>
+      </div>
+
+      <!-- Search in conversations -->
+      <div class="sidebar-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input type="text" id="searchChatsInput" placeholder="Search chats..." autocomplete="off">
+      </div>
+
+      <!-- Conversations list -->
+      <div class="conversations-wrapper">
+        <div class="history-label">Recent Conversations</div>
+        <div class="conversations-list" id="conversationsList">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+      <!-- Sidebar Footer -->
+      <div class="sidebar-footer">
+        <!-- Local PC Folder Status -->
+        <div class="pc-folder-card" id="pcFolderCard">
+          <div class="pc-folder-info">
+            <span class="pc-folder-dot" id="pcFolderDot"></span>
+            <div class="pc-folder-details">
+              <span class="pc-folder-label">User PC Storage:</span>
+              <span class="pc-folder-name" id="pcFolderName">No Folder Selected</span>
+            </div>
+          </div>
+          <button class="pc-folder-btn" id="selectPcFolderBtn" title="Select a special folder on your PC to auto-save chats">
+            📁 Select PC Folder
+          </button>
+        </div>
+
+        <div class="api-key-status" id="apiKeyStatusBadge" title="API Key Status">
+          <span class="status-dot"></span>
+          <span class="status-text">Checking API Key...</span>
+        </div>
+        <div class="footer-links">
+          <button class="footer-btn" id="openSettingsBtn" title="Settings">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            <span>Settings</span>
+          </button>
+          <button class="footer-btn" id="openEmbeddingsBtn" title="Embeddings & Models">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+            <span>Models & Tools</span>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Chat View -->
+    <main class="main-content">
+      <!-- Top Navigation Bar -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-btn menu-toggle-btn" id="menuToggleBtn" title="Toggle Sidebar">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+          </button>
+          
+          <!-- Model Selector Pill (Interactive Dropdown) -->
+          <div class="model-pill-container" id="modelPillContainer">
+            <button class="model-pill" id="modelPillBtn" title="Switch Model">
+              <span class="model-color-dot" id="activeModelDot"></span>
+              <span class="model-name" id="activeModelName">Llama 3.3 70B</span>
+              <span class="model-tag best-badge">★ Best</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+
+            <!-- Quick Model Dropdown Menu -->
+            <div class="model-dropdown-menu" id="modelDropdownMenu">
+              <div class="dropdown-header">
+                <span>Select Free OpenRouter Model</span>
+                <span class="free-pill">100% Free</span>
+              </div>
+              <div class="dropdown-models-list" id="dropdownModelsList">
+                <!-- Injected dynamically -->
+              </div>
+              <div class="dropdown-footer">
+                <button class="custom-model-link" id="openCustomModelModal">
+                  ⚙️ Advanced Models & Embedding Settings
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <!-- Theme Selector Dropdown -->
+          <div class="theme-dropdown-container">
+            <button class="icon-btn theme-btn" id="themePickerBtn" title="Change Theme Palette">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a7 7 0 0 0 7 7c0 2-2 3-2 3s-1 1-1 3a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2c0-2-1-3-1-3s-2-1-2-3a7 7 0 0 0 7-7z"></path></svg>
+            </button>
+            <div class="theme-menu" id="themeMenu">
+              <div class="theme-menu-title">Vibrant Themes</div>
+              <button class="theme-opt active" data-theme="neon-aurora">
+                <span class="theme-swatch aurora"></span>
+                <span>🌈 Neon Aurora (Dark)</span>
+              </button>
+              <button class="theme-opt" data-theme="sunset-glow">
+                <span class="theme-swatch sunset"></span>
+                <span>🌅 Sunset Ember</span>
+              </button>
+              <button class="theme-opt" data-theme="cyber-teal">
+                <span class="theme-swatch cyber"></span>
+                <span>🌊 Cyber Ocean</span>
+              </button>
+              <button class="theme-opt" data-theme="cosmic-violet">
+                <span class="theme-swatch violet"></span>
+                <span>🍇 Cosmic Violet</span>
+              </button>
+              <button class="theme-opt" data-theme="candy-pop">
+                <span class="theme-swatch candy"></span>
+                <span>🍭 Candy Pop (Light)</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Export Chat Button -->
+          <button class="icon-btn" id="exportChatBtn" title="Export Conversation">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          </button>
+
+          <!-- Clear Chat Button -->
+          <button class="icon-btn" id="clearChatBtn" title="Clear Current Chat">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- Chat Messages Scroll Container -->
+      <div class="chat-viewport" id="chatViewport">
+        <!-- Welcome Screen (shown when conversation is empty) -->
+        <div class="welcome-screen" id="welcomeScreen">
+          <div class="welcome-hero">
+            <div class="welcome-logo-badge">
+              <img src="/logo.jpg" alt="RoroGPT" class="welcome-avatar-img">
+            </div>
+            <h1 class="welcome-title">Welcome to <span class="gradient-text">RoroGPT</span></h1>
+            <p class="welcome-subtitle">Classic GPT chat powered by the world's best free AI models via OpenRouter. Fast, unlimited, and fully customizable.</p>
+            
+            <div class="active-badge-bar">
+              <div class="active-pill">
+                <span class="pulsing-dot"></span>
+                <span>Active Model: <strong id="welcomeActiveModel">Llama 3.3 70B (Best)</strong></span>
+              </div>
+              <div class="active-pill openrouter-free">
+                <span>Free Tier • 0 Cost</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Starter Prompt Cards -->
+          <div class="prompt-cards-grid">
+            <button class="prompt-card" data-prompt="Explain quantum computing like I am a 12-year-old with a colorful analogy.">
+              <div class="card-icon" style="background: rgba(236, 72, 153, 0.15); color: #ec4899;">💡</div>
+              <div class="card-title">Explain Like I'm 12</div>
+              <div class="card-desc">Quantum computing explained with a fun, intuitive story.</div>
+            </button>
+            <button class="prompt-card" data-prompt="Write a modern Python FastAPI endpoint that streams real-time SSE responses to a frontend with error handling.">
+              <div class="card-icon" style="background: rgba(139, 92, 246, 0.15); color: #8b5cf6;">💻</div>
+              <div class="card-title">Modern Python Code</div>
+              <div class="card-desc">Generate production-grade FastAPI streaming code with types.</div>
+            </button>
+            <button class="prompt-card" data-prompt="Solve this math puzzle step-by-step: A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost? Show detailed logic.">
+              <div class="card-icon" style="background: rgba(6, 182, 212, 0.15); color: #06b6d4;">🧠</div>
+              <div class="card-title">Deep Logic & Math</div>
+              <div class="card-desc">Step-by-step reasoning for tricky cognitive puzzles.</div>
+            </button>
+            <button class="prompt-card" data-prompt="Give me 5 viral and creative startup ideas combining Web3 and AI for indie hackers in 2026.">
+              <div class="card-icon" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;">🚀</div>
+              <div class="card-title">Brainstorm Startups</div>
+              <div class="card-desc">Fresh, viable indie hacker ideas with monetization plans.</div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Messages Stream Container -->
+        <div class="messages-container" id="messagesContainer">
+          <!-- Rendered messages -->
+        </div>
+      </div>
+
+      <!-- Input Area Dock -->
+      <div class="input-dock">
+        <!-- Floating Generation Stop / Action Bar -->
+        <div class="generating-bar" id="generatingBar" style="display: none;">
+          <div class="generating-indicator">
+            <span class="wave-bar"></span>
+            <span class="wave-bar"></span>
+            <span class="wave-bar"></span>
+            <span class="gen-text">RoroGPT is thinking & replying...</span>
+          </div>
+          <button class="stop-btn" id="stopGenerationBtn">
+            <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>
+            <span>Stop Generating</span>
+          </button>
+        </div>
+
+        <!-- Chat Input Form -->
+        <div class="input-wrapper">
+          <textarea 
+            id="chatInput" 
+            placeholder="Message RoroGPT... (Shift + Enter for new line)" 
+            rows="1" 
+            autofocus></textarea>
+
+          <div class="input-actions-bar">
+            <div class="input-left-tools">
+              <!-- Quick model tag display -->
+              <span class="input-model-chip" id="inputModelChip" title="Click to change model">
+                <span class="chip-dot"></span>
+                <span class="chip-name">Llama 3.3 70B</span>
+              </span>
+              <!-- Sound SFX toggle -->
+              <button class="tool-btn" id="sfxToggleBtn" title="Toggle Sound SFX">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="sfxIcon"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+              </button>
+            </div>
+
+            <div class="input-right-tools">
+              <button class="send-btn" id="sendBtn" title="Send message" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="footer-disclaimer">
+          RoroGPT uses free models via OpenRouter. AI output may occasionally make errors. Verify critical information.
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal: Settings & API Key -->
+  <div class="modal-backdrop" id="settingsModal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div class="modal-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          <span>RoroGPT Settings</span>
+        </div>
+        <button class="icon-btn close-modal-btn" data-close="settingsModal">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- API Key Section -->
+        <div class="form-group">
+          <label for="apiKeyInput" class="form-label">
+            <span>OpenRouter API Key</span>
+            <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" class="link-label">Get free key ↗</a>
+          </label>
+          <div class="input-with-action">
+            <input type="password" id="apiKeyInput" placeholder="sk-or-v1-xxxxxxxx..." autocomplete="off">
+            <button class="input-action-btn" id="toggleApiKeyVisibility" title="Show/Hide">👁️</button>
+          </div>
+          <small class="form-hint">Stored safely in your browser. Leave blank if you already configured <code>OPENROUTER_API_KEY</code> on Vercel or in <code>.env</code>.</small>
+        </div>
+
+        <!-- Custom System Prompt -->
+        <div class="form-group">
+          <label for="systemPromptInput" class="form-label">
+            <span>System Persona / Custom Instructions</span>
+          </label>
+          <textarea id="systemPromptInput" rows="3" placeholder="You are RoroGPT, an ultra helpful, colorful, and intelligent AI companion..."></textarea>
+          <div class="prompt-presets">
+            <button class="preset-tag" data-prompt="You are RoroGPT, an exceptionally smart, friendly, and concise AI assistant. You answer with clean markdown, accurate code, and sharp reasoning.">Default Friendly</button>
+            <button class="preset-tag" data-prompt="You are a Principal Software Engineer. Provide complete, production-ready code with explanations, edge cases, and best practices.">Senior Engineer</button>
+            <button class="preset-tag" data-prompt="You are a brilliant academic tutor. Explain complex concepts intuitively using step-by-step Socratic breakdowns and clear examples.">Academic Tutor</button>
+          </div>
+        </div>
+
+        <!-- Temperature Slider -->
+        <div class="form-group">
+          <div class="slider-label-row">
+            <label for="temperatureSlider" class="form-label">Temperature (Creativity)</label>
+            <span class="slider-value" id="temperatureValue">0.7</span>
+          </div>
+          <input type="range" id="temperatureSlider" min="0" max="1" step="0.05" value="0.7">
+          <div class="slider-ticks">
+            <span>Precise (0.0)</span>
+            <span>Balanced (0.7)</span>
+            <span>Creative (1.0)</span>
+          </div>
+        </div>
+
+        <!-- Special PC Local Folder Storage -->
+        <div class="form-group pc-storage-section">
+          <label class="form-label">
+            <span>💾 Save Chats Directly to Your PC (Not on Server)</span>
+            <span class="privacy-tag">100% Private</span>
+          </label>
+          <div class="pc-storage-box">
+            <div class="pc-storage-status-row">
+              <span class="pc-storage-dot" id="modalPcFolderDot"></span>
+              <span class="pc-storage-path" id="modalPcFolderName">No PC folder selected</span>
+            </div>
+            <p class="pc-storage-desc">
+              Connect a folder on your PC (e.g. <code>Documents/RoroGPT_Chats</code>). Every conversation is auto-saved as <strong>Markdown (.md)</strong> and <strong>JSON (.json)</strong> directly to your hard drive. Zero data is kept on Vercel servers.
+            </p>
+            <div class="pc-storage-actions">
+              <button class="btn btn-primary btn-sm" id="modalSelectFolderBtn">
+                📁 Choose / Change PC Folder
+              </button>
+              <button class="btn btn-secondary btn-sm" id="modalSyncNowBtn">
+                ⚡ Save All Chats to PC Now
+              </button>
+              <button class="btn btn-secondary btn-sm" id="modalLoadFromPcBtn">
+                📥 Import from PC Folder
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Vercel Deployment Info Banner -->
+        <div class="vercel-callout">
+          <div class="callout-icon">▲</div>
+          <div class="callout-content">
+            <div class="callout-title">Deploy to Vercel in 1-Click</div>
+            <p>Push this folder to GitHub, import it into Vercel, and add your <code>OPENROUTER_API_KEY</code> under Environment Variables. It runs immediately!</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-close="settingsModal">Cancel</button>
+        <button class="btn btn-primary" id="saveSettingsBtn">Save Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Models & Embeddings Management -->
+  <div class="modal-backdrop" id="embeddingsModal">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-header">
+        <div class="modal-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+          <span>Models & Embeddings Studio</span>
+        </div>
+        <button class="icon-btn close-modal-btn" data-close="embeddingsModal">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Tabs -->
+        <div class="modal-tabs">
+          <button class="tab-btn active" data-tab="tabChatModels">Chat Models</button>
+          <button class="tab-btn" data-tab="tabEmbeddingModels">Embedding Models</button>
+          <button class="tab-btn" data-tab="tabEmbedTester">Semantic Similarity Tester</button>
+        </div>
+
+        <!-- Tab 1: Chat Models -->
+        <div class="tab-pane active" id="tabChatModels">
+          <div class="tab-description">
+            Choose your active chat model. <strong>Llama 3.3 70B</strong> is set as the best default, but you can switch to any free model or enter any custom OpenRouter model.
+          </div>
+          <div class="models-grid" id="fullModelsGrid">
+            <!-- Populated by JS -->
+          </div>
+
+          <div class="custom-model-box">
+            <label class="form-label">Or use any custom OpenRouter model ID:</label>
+            <div class="custom-model-input-row">
+              <input type="text" id="customModelInput" placeholder="e.g. meta-llama/llama-3.3-70b-instruct:free or anthropic/claude-3.5-sonnet">
+              <button class="btn btn-primary" id="applyCustomModelBtn">Apply Model</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 2: Embedding Models -->
+        <div class="tab-pane" id="tabEmbeddingModels">
+          <div class="tab-description">
+            Select or change the embedding model used for vector representations, semantic similarity, and knowledge retrieval. <strong>text-embedding-3-small</strong> is the recommended default.
+          </div>
+          <div class="embeddings-grid" id="embeddingsGrid">
+            <!-- Populated by JS -->
+          </div>
+
+          <div class="custom-model-box">
+            <label class="form-label">Or enter custom Embedding Model ID:</label>
+            <div class="custom-model-input-row">
+              <input type="text" id="customEmbeddingModelInput" placeholder="e.g. text-embedding-3-small, baai/bge-m3, nomic-ai/nomic-embed-text-v1.5">
+              <button class="btn btn-primary" id="applyCustomEmbeddingBtn">Save Model</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 3: Semantic Similarity & Embedding Tester -->
+        <div class="tab-pane" id="tabEmbedTester">
+          <div class="tab-description">
+            Test real-time embeddings directly! Enter two texts to compute vector embeddings and calculate their semantic cosine similarity percentage.
+          </div>
+
+          <div class="tester-grid">
+            <div class="tester-col">
+              <label class="form-label">Text A</label>
+              <textarea id="embedTextA" rows="3" placeholder="Enter first text snippet... (e.g. 'I love programming in Python and JavaScript')">I love programming in Python and JavaScript</textarea>
+            </div>
+            <div class="tester-col">
+              <label class="form-label">Text B</label>
+              <textarea id="embedTextB" rows="3" placeholder="Enter second text snippet... (e.g. 'Coding in JS and Python is my passion')">Coding in JS and Python is my passion</textarea>
+            </div>
+          </div>
+
+          <div class="tester-action-row">
+            <button class="btn btn-primary" id="computeSimilarityBtn">
+              ⚡ Compute Similarity with Active Embedding Model
+            </button>
+            <div class="active-embed-tag" id="testerActiveModelBadge">Model: text-embedding-3-small (Best)</div>
+          </div>
+
+          <div class="similarity-result-card" id="similarityResultCard" style="display: none;">
+            <div class="similarity-score-bar">
+              <div class="score-label">Semantic Similarity:</div>
+              <div class="score-percentage" id="similarityPercentage">--%</div>
+            </div>
+            <div class="meter-bar-container">
+              <div class="meter-bar-fill" id="similarityMeterFill"></div>
+            </div>
+            <div class="embed-meta" id="embedMetaDetails">--</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-primary" data-close="embeddingsModal">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Main JavaScript -->
+  <script src="/app.js"></script>
+</body>
+</html>
