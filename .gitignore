@@ -2,8 +2,8 @@ node_modules/
 .env
 .env.local
 .vercel/
-.DS_Store
-Thumbs.db
-
 .vercel
 .env*
+.DS_Store
+Thumbs.db
+code_image*
