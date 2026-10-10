@@ -3311,4 +3311,41 @@ input[type="range"] {
   height: 14px;
 }
 
+.msg-attachment-badge.attachment-unavailable {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #f87171;
+  font-style: italic;
+}
+
+.msg-attached-img.loading-thumb {
+  min-width: 120px;
+  min-height: 80px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.storage-health-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.storage-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  background: #10b981;
+}
+
+.storage-dot.degraded {
+  background: #f59e0b;
+}
+
+.storage-dot.unavailable {
+  background: #ef4444;
+}
+
 

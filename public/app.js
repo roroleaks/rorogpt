@@ -67,7 +67,8 @@ const state = {
   activeLibFilter: "all",
   cameraStream: null,
   capturedPhotoData: null,
-  previewPendingItem: null
+  previewPendingItem: null,
+  storageHealth: "healthy"
 };
 
 // ==========================================================
@@ -196,6 +197,11 @@ const DOM = {
   modalSelectFolderBtn: document.getElementById("modalSelectFolderBtn"),
   modalSyncNowBtn: document.getElementById("modalSyncNowBtn"),
   modalLoadFromPcBtn: document.getElementById("modalLoadFromPcBtn"),
+  // Storage & Persistence Health
+  storageHealthBadge: document.getElementById("storageHealthBadge"),
+  storageIndicatorDot: document.getElementById("storageIndicatorDot"),
+  storageUsageText: document.getElementById("storageUsageText"),
+  cleanOrphanBlobsBtn: document.getElementById("cleanOrphanBlobsBtn"),
   // Attachments Menu & Tray
   attachMenuContainer: document.getElementById("attachMenuContainer"),
   attachMenuBtn: document.getElementById("attachMenuBtn"),
@@ -323,6 +329,15 @@ function isSafeUrl(url, allowDataImage = false) {
     try {
       const parsed = new URL(trimmed);
       return parsed.protocol === "https:" || parsed.protocol === "http:";
+    } catch {
+      return false;
+    }
+  }
+
+  if (lower.startsWith("blob:")) {
+    try {
+      const parsed = new URL(trimmed);
+      return parsed.protocol === "blob:" && !lower.includes("javascript:") && !lower.includes("vbscript:");
     } catch {
       return false;
     }
@@ -975,18 +990,30 @@ function renderEmbeddingsUI() {
 // USER PC SPECIAL FOLDER STORAGE (File System Access API & IndexedDB)
 // ==========================================================
 const IDB_NAME = "RoroGPT_Storage";
+const IDB_VERSION = 3;
 const IDB_STORE = "handles";
 const IDB_STORE_LIB = "library_items";
 const IDB_STORE_SKILLS = "skills";
+const IDB_STORE_BLOBS = "attachment_blobs";
+
+if (typeof window !== "undefined") {
+  window.IDB_VERSION = IDB_VERSION;
+  window.IDB_STORE_BLOBS = IDB_STORE_BLOBS;
+}
 
 function openIDB() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(IDB_NAME, 2);
+    const idb = typeof indexedDB !== "undefined" ? indexedDB : (typeof window !== "undefined" ? window.indexedDB : null);
+    if (!idb) {
+      return reject(new Error("IndexedDB is not available in this environment"));
+    }
+    const req = idb.open(IDB_NAME, IDB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains("handles")) db.createObjectStore("handles");
       if (!db.objectStoreNames.contains(IDB_STORE_LIB)) db.createObjectStore(IDB_STORE_LIB, { keyPath: "id" });
       if (!db.objectStoreNames.contains(IDB_STORE_SKILLS)) db.createObjectStore(IDB_STORE_SKILLS, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(IDB_STORE_BLOBS)) db.createObjectStore(IDB_STORE_BLOBS, { keyPath: "id" });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -1004,6 +1031,21 @@ async function idbPut(storeName, item) {
     });
   } catch (e) {
     console.warn(`IDB Put error in ${storeName}`, e);
+    throw e;
+  }
+}
+
+async function idbGet(storeName, key) {
+  try {
+    const db = await openIDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction(storeName, "readonly");
+      const req = tx.objectStore(storeName).get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
   }
 }
 
@@ -1032,6 +1074,214 @@ async function idbDelete(storeName, key) {
     });
   } catch (e) {
     console.warn(`IDB Delete error in ${storeName}`, e);
+  }
+}
+
+// Active Object URL registry with memory leak prevention
+const activeObjectUrls = new Map(); // blobId -> objectUrl
+
+function getObjectUrlForBlob(blobId, blob) {
+  if (activeObjectUrls.has(blobId)) {
+    return activeObjectUrls.get(blobId);
+  }
+  if (!blob || typeof URL === "undefined" || !URL.createObjectURL) {
+    return "";
+  }
+  try {
+    const url = URL.createObjectURL(blob);
+    activeObjectUrls.set(blobId, url);
+    return url;
+  } catch (e) {
+    console.warn("Failed creating object URL for blob:", blobId, e);
+    return "";
+  }
+}
+
+function revokeObjectUrl(blobId) {
+  if (activeObjectUrls.has(blobId)) {
+    const url = activeObjectUrls.get(blobId);
+    if (typeof URL !== "undefined" && URL.revokeObjectURL) {
+      try { URL.revokeObjectURL(url); } catch {}
+    }
+    activeObjectUrls.delete(blobId);
+  }
+}
+
+function revokeAllObjectUrls() {
+  for (const [blobId, url] of activeObjectUrls.entries()) {
+    if (typeof URL !== "undefined" && URL.revokeObjectURL) {
+      try { URL.revokeObjectURL(url); } catch {}
+    }
+  }
+  activeObjectUrls.clear();
+}
+
+function dataUrlToBlob(dataUrl) {
+  if (!dataUrl || typeof dataUrl !== "string") return null;
+  const parts = dataUrl.split(",");
+  if (parts.length < 2) return null;
+  const match = parts[0].match(/:(.*?);/);
+  const mime = match ? match[1] : "image/jpeg";
+  try {
+    const bstr = atob(parts[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new Blob([u8arr], { type: mime });
+  } catch {
+    return null;
+  }
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve) => {
+    if (!blob) return resolve("");
+    if (typeof FileReader === "undefined") return resolve("");
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result || "");
+    reader.onerror = () => resolve("");
+    reader.readAsDataURL(blob);
+  });
+}
+
+// In-memory fallback if IndexedDB is unavailable in current context
+const inMemoryBlobStore = new Map();
+
+async function storeAttachmentBlob(blobOrDataUrl, mimeType = "image/jpeg", customId = null) {
+  if (!blobOrDataUrl) return null;
+  const blobId = customId || ("blob_" + Date.now() + "_" + Math.random().toString(36).substr(2, 6));
+
+  let blob = blobOrDataUrl;
+  let size = 0;
+  let type = mimeType;
+
+  if (typeof blobOrDataUrl === "string") {
+    if (blobOrDataUrl.startsWith("data:")) {
+      blob = dataUrlToBlob(blobOrDataUrl);
+      if (blob) {
+        size = blob.size;
+        type = blob.type || mimeType;
+      }
+    }
+  } else if (typeof Blob !== "undefined" && blobOrDataUrl instanceof Blob) {
+    size = blobOrDataUrl.size;
+    type = blobOrDataUrl.type || mimeType;
+  }
+
+  const record = {
+    id: blobId,
+    blob: blob,
+    mimeType: type,
+    size: size,
+    createdAt: Date.now()
+  };
+
+  try {
+    await idbPut(IDB_STORE_BLOBS, record);
+  } catch {
+    inMemoryBlobStore.set(blobId, record);
+  }
+  return blobId;
+}
+
+async function getAttachmentBlob(blobId) {
+  if (!blobId) return null;
+  const record = await idbGet(IDB_STORE_BLOBS, blobId);
+  if (record) return record;
+  return inMemoryBlobStore.get(blobId) || null;
+}
+
+async function deleteAttachmentBlob(blobId) {
+  if (!blobId) return;
+  revokeObjectUrl(blobId);
+  inMemoryBlobStore.delete(blobId);
+  await idbDelete(IDB_STORE_BLOBS, blobId);
+}
+
+// Reachability scan: safely cleans orphaned blobs not referenced in any chat, composer tray, or library
+async function cleanupOrphanedBlobs() {
+  const referencedBlobIds = new Set();
+
+  // 1. Referenced in chats
+  for (const chat of Object.values(state.chats || {})) {
+    for (const msg of chat.messages || []) {
+      for (const att of msg.attachments || []) {
+        if (att.blobId) referencedBlobIds.add(att.blobId);
+      }
+    }
+  }
+
+  // 2. Referenced in composer tray
+  for (const att of state.attachments || []) {
+    if (att.blobId) referencedBlobIds.add(att.blobId);
+  }
+
+  // 3. Referenced in Personal Library
+  const libItems = await idbGetAll(IDB_STORE_LIB);
+  for (const item of libItems || []) {
+    if (item.blobId) referencedBlobIds.add(item.blobId);
+  }
+
+  // 4. Scan stored blobs in IndexedDB
+  const allBlobs = await idbGetAll(IDB_STORE_BLOBS);
+  let cleanedCount = 0;
+  for (const record of allBlobs || []) {
+    if (!referencedBlobIds.has(record.id)) {
+      await deleteAttachmentBlob(record.id);
+      cleanedCount++;
+    }
+  }
+
+  // Also scan in-memory fallback
+  for (const id of inMemoryBlobStore.keys()) {
+    if (!referencedBlobIds.has(id)) {
+      deleteAttachmentBlob(id);
+      cleanedCount++;
+    }
+  }
+
+  const remaining = referencedBlobIds.size;
+  await updateStorageStatusUI();
+  return { cleaned: cleanedCount, remaining: Math.max(0, remaining) };
+}
+
+async function updateStorageStatusUI() {
+  if (DOM.storageHealthBadge) {
+    if (state.storageHealth === "healthy") {
+      DOM.storageHealthBadge.textContent = "🟢 Healthy";
+      DOM.storageHealthBadge.style.background = "rgba(16, 185, 129, 0.2)";
+      DOM.storageHealthBadge.style.color = "#10b981";
+    } else if (state.storageHealth === "degraded") {
+      DOM.storageHealthBadge.textContent = "🟡 Degraded (Quota Warning)";
+      DOM.storageHealthBadge.style.background = "rgba(245, 158, 11, 0.2)";
+      DOM.storageHealthBadge.style.color = "#f59e0b";
+    } else {
+      DOM.storageHealthBadge.textContent = "🔴 Storage Full";
+      DOM.storageHealthBadge.style.background = "rgba(239, 68, 68, 0.2)";
+      DOM.storageHealthBadge.style.color = "#ef4444";
+    }
+  }
+
+  if (DOM.storageIndicatorDot) {
+    DOM.storageIndicatorDot.className = `storage-dot ${state.storageHealth || "healthy"}`;
+  }
+
+  if (DOM.storageUsageText) {
+    try {
+      if (typeof navigator !== "undefined" && navigator.storage && navigator.storage.estimate) {
+        const est = await navigator.storage.estimate();
+        const usedMB = ((est.usage || 0) / (1024 * 1024)).toFixed(1);
+        const quotaMB = ((est.quota || 0) / (1024 * 1024)).toFixed(0);
+        DOM.storageUsageText.textContent = `Browser Storage: ~${usedMB} MB used of ~${quotaMB} MB quota`;
+      } else {
+        const lsLen = (JSON.stringify(localStorage || {}).length / 1024).toFixed(1);
+        DOM.storageUsageText.textContent = `LocalStorage: ~${lsLen} KB used (IndexedDB Blobs Active)`;
+      }
+    } catch {
+      DOM.storageUsageText.textContent = "Local Browser Storage (IndexedDB • 100% Private)";
+    }
   }
 }
 
@@ -1161,6 +1411,30 @@ async function autoSaveChatToPC(chat) {
     await jsonWritable.write(jsonStr);
     await jsonWritable.close();
 
+    // 3. Write image attachment binaries to PC folder if present
+    if (Array.isArray(chat.messages)) {
+      for (const msg of chat.messages) {
+        if (Array.isArray(msg.attachments)) {
+          for (const att of msg.attachments) {
+            if (att.type === "image" && att.blobId) {
+              try {
+                const rec = await getAttachmentBlob(att.blobId);
+                if (rec && rec.blob) {
+                  const safeAttName = `${chat.id}_${(att.name || "photo.jpg").replace(/[^a-z0-9._\-]/gi, "_")}`;
+                  const attHandle = await state.dirHandle.getFileHandle(safeAttName, { create: true });
+                  const attWritable = await attHandle.createWritable();
+                  await attWritable.write(rec.blob);
+                  await attWritable.close();
+                }
+              } catch (e) {
+                console.warn("[RoroGPT] Failed exporting attachment to PC folder:", e);
+              }
+            }
+          }
+        }
+      }
+    }
+
     console.log(`[RoroGPT] Chat "${chat.title}" saved locally on PC.`);
   } catch (e) {
     console.warn("Failed auto-saving chat to PC folder:", e);
@@ -1261,14 +1535,28 @@ function renderAttachmentsTray() {
     chip.setAttribute("data-id", att.id);
 
     // Visual element: Safe image thumbnail or icon
-    if (att.type === "image" && (att.previewUrl || att.base64Data)) {
-      const rawSrc = (att.previewUrl || att.base64Data).trim();
-      if (isSafeUrl(rawSrc, true)) {
+    if (att.type === "image") {
+      const rawSrc = (att.previewUrl || att.base64Data || "").trim();
+      if (rawSrc && isSafeUrl(rawSrc, true)) {
         const thumb = document.createElement("img");
         thumb.className = "chip-thumbnail";
         thumb.src = rawSrc;
         thumb.alt = att.name || "Attachment";
         chip.appendChild(thumb);
+      } else if (att.blobId) {
+        const thumb = document.createElement("img");
+        thumb.className = "chip-thumbnail loading-thumb";
+        thumb.alt = att.name || "Attachment";
+        chip.appendChild(thumb);
+        getAttachmentBlob(att.blobId).then(rec => {
+          if (rec && rec.blob) {
+            const url = getObjectUrlForBlob(att.blobId, rec.blob);
+            if (url) {
+              thumb.src = url;
+              thumb.classList.remove("loading-thumb");
+            }
+          }
+        }).catch(() => {});
       } else {
         const iconSpan = document.createElement("span");
         iconSpan.className = "chip-icon";
@@ -1352,6 +1640,10 @@ function renderAttachmentsTray() {
 }
 
 function removeAttachment(id) {
+  const att = state.attachments.find(a => a.id === id);
+  if (att && att.blobId) {
+    revokeObjectUrl(att.blobId);
+  }
   state.attachments = state.attachments.filter(a => a.id !== id);
   renderAttachmentsTray();
 }
@@ -1364,7 +1656,14 @@ async function saveAttachmentToLibrary(id) {
     id: "lib_" + Date.now() + "_" + Math.random().toString(36).substr(2, 4),
     savedAt: Date.now()
   };
-  await idbPut(IDB_STORE_LIB, libItem);
+  if (libItem.blobId && libItem.base64Data) {
+    delete libItem.base64Data;
+  }
+  try {
+    await idbPut(IDB_STORE_LIB, libItem);
+  } catch {
+    state.libraryItems.push(libItem);
+  }
   await loadLibrary();
   showToast(`Saved "${att.name}" to Personal Library!`, "success");
 }
@@ -1426,10 +1725,11 @@ async function handleDocumentFiles(files) {
         showToast(`Document "${file.name}" appears to be empty or unscannable.`, "info");
       }
 
-      // Check for content limit (120,000 characters to avoid silent truncation)
+      // Check for content limit (100,000 characters to avoid silent truncation)
       let isTruncated = false;
-      if (extractedText.length > 120000) {
-        extractedText = extractedText.slice(0, 120000) + "\n\n[...Document truncated to first 120,000 characters to fit model context window...]";
+      const MAX_DOC_CHARS = 100000;
+      if (extractedText.length > MAX_DOC_CHARS) {
+        extractedText = extractedText.slice(0, MAX_DOC_CHARS) + `\n\n[...Document truncated to first ${MAX_DOC_CHARS.toLocaleString()} characters to fit model context window and storage limits...]`;
         isTruncated = true;
       }
 
@@ -1460,7 +1760,7 @@ async function handleDocumentFiles(files) {
 // ----------------------------------------------------------
 // Photos & Images
 // ----------------------------------------------------------
-function handlePhotoFiles(files) {
+async function handlePhotoFiles(files) {
   if (!files || files.length === 0) return;
 
   for (const file of Array.from(files)) {
@@ -1469,28 +1769,27 @@ function handlePhotoFiles(files) {
       continue;
     }
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target.result;
+    try {
+      const blobId = await storeAttachmentBlob(file, file.type || "image/jpeg");
+      const objectUrl = getObjectUrlForBlob(blobId, file);
+
       const attachment = {
         id: "att_img_" + Date.now() + "_" + Math.random().toString(36).substr(2, 4),
         type: "image",
         name: file.name,
         size: file.size,
         mimeType: file.type || "image/jpeg",
-        previewUrl: dataUrl,
-        base64Data: dataUrl,
+        blobId: blobId,
+        previewUrl: objectUrl,
         meta: formatBytes(file.size),
         createdAt: Date.now()
       };
       state.attachments.push(attachment);
       renderAttachmentsTray();
       showToast(`Attached photo "${file.name}"!`, "success");
-    };
-    reader.onerror = () => {
-      showToast(`Could not read "${file.name}".`, "error");
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      showToast(`Could not read "${file.name}": ${err.message}`, "error");
+    }
   }
 }
 
@@ -1566,28 +1865,36 @@ function retakeCameraPhoto() {
   DOM.cameraReviewControls.style.display = "none";
 }
 
-function useCapturedPhoto() {
+async function useCapturedPhoto() {
   if (!state.capturedPhotoData) return;
   const timestamp = new Date().toLocaleTimeString().replace(/:/g, "-");
   const fileName = `Camera_Photo_${timestamp}.jpg`;
   const estimatedSize = Math.round((state.capturedPhotoData.length * 3) / 4);
 
-  const attachment = {
-    id: "att_cam_" + Date.now(),
-    type: "image",
-    name: fileName,
-    size: estimatedSize,
-    mimeType: "image/jpeg",
-    previewUrl: state.capturedPhotoData,
-    base64Data: state.capturedPhotoData,
-    meta: formatBytes(estimatedSize),
-    createdAt: Date.now()
-  };
+  try {
+    const blob = dataUrlToBlob(state.capturedPhotoData);
+    const blobId = await storeAttachmentBlob(blob || state.capturedPhotoData, "image/jpeg");
+    const objectUrl = blob ? getObjectUrlForBlob(blobId, blob) : "";
 
-  state.attachments.push(attachment);
-  renderAttachmentsTray();
-  closeCameraModal();
-  showToast("Photo captured and attached!", "success");
+    const attachment = {
+      id: "att_cam_" + Date.now(),
+      type: "image",
+      name: fileName,
+      size: estimatedSize,
+      mimeType: "image/jpeg",
+      blobId: blobId,
+      previewUrl: objectUrl,
+      meta: formatBytes(estimatedSize),
+      createdAt: Date.now()
+    };
+
+    state.attachments.push(attachment);
+    renderAttachmentsTray();
+    closeCameraModal();
+    showToast("Photo captured and attached!", "success");
+  } catch (err) {
+    showToast(`Failed saving captured photo: ${err.message}`, "error");
+  }
 }
 
 // ----------------------------------------------------------
@@ -1635,6 +1942,13 @@ async function fetchAndAttachWebLink() {
       throw new Error(data.error || "Web content retrieval failed");
     }
 
+    let siteHostname = "";
+    try {
+      siteHostname = new URL(url).hostname;
+    } catch {
+      siteHostname = url;
+    }
+
     DOM.webLinkStatusBox.className = "weblink-status-box success";
     DOM.webLinkStatusBox.replaceChildren();
     const succIcon = document.createElement("span");
@@ -1647,12 +1961,17 @@ async function fetchAndAttachWebLink() {
     DOM.webLinkStatusBox.appendChild(strongTitle);
     DOM.webLinkStatusBox.appendChild(document.createTextNode(`" (${contentLen} chars).`));
 
-    let siteHostname = "";
-    try {
-      siteHostname = new URL(url).hostname;
-    } catch {
-      siteHostname = url;
+    // Safeguard: Truncate web content if exceptionally long (> 100,000 characters)
+    let webContent = data.content || "";
+    let isTruncated = false;
+    const MAX_WEB_CHARS = 100000;
+    if (webContent.length > MAX_WEB_CHARS) {
+      webContent = webContent.slice(0, MAX_WEB_CHARS) + `\n\n[...Website content truncated to first ${MAX_WEB_CHARS.toLocaleString()} characters to fit storage limits...]`;
+      isTruncated = true;
     }
+
+    const metaParts = [`Web Link • ${data.siteName || siteHostname}`];
+    if (isTruncated) metaParts.push("Truncated");
 
     const attachment = {
       id: "att_url_" + Date.now(),
@@ -1660,10 +1979,10 @@ async function fetchAndAttachWebLink() {
       name: data.title || siteHostname,
       url: url,
       instruction: instruction,
-      textContent: data.content,
+      textContent: webContent,
       summary: data.description || "",
       siteName: data.siteName || siteHostname,
-      meta: `Web Link • ${data.siteName || siteHostname}`,
+      meta: metaParts.join(" • "),
       createdAt: Date.now()
     };
 
@@ -2027,14 +2346,28 @@ function renderLibraryGrid() {
     const topDiv = document.createElement("div");
     topDiv.className = "lib-card-top";
 
-    if (item.type === "image" && (item.previewUrl || item.base64Data)) {
-      const rawSrc = (item.previewUrl || item.base64Data).trim();
-      if (isSafeUrl(rawSrc, true)) {
+    if (item.type === "image") {
+      const rawSrc = (item.previewUrl || item.base64Data || "").trim();
+      if (rawSrc && isSafeUrl(rawSrc, true)) {
         const img = document.createElement("img");
         img.src = rawSrc;
         img.className = "lib-card-img-thumb";
         img.alt = item.name || "Library Image";
         topDiv.appendChild(img);
+      } else if (item.blobId) {
+        const img = document.createElement("img");
+        img.className = "lib-card-img-thumb loading-thumb";
+        img.alt = item.name || "Library Image";
+        topDiv.appendChild(img);
+        getAttachmentBlob(item.blobId).then(rec => {
+          if (rec && rec.blob) {
+            const url = getObjectUrlForBlob(item.blobId, rec.blob);
+            if (url) {
+              img.src = url;
+              img.classList.remove("loading-thumb");
+            }
+          }
+        }).catch(() => {});
       } else {
         const iconSpan = document.createElement("span");
         iconSpan.className = "lib-card-icon";
@@ -2106,7 +2439,7 @@ function attachLibraryItemToChat(item) {
   };
   state.attachments.push(attachment);
   renderAttachmentsTray();
-  DOM.libraryModal.classList.remove("open");
+  if (DOM.libraryModal) DOM.libraryModal.classList.remove("open");
   showToast(`Attached "${item.name}" from Library!`, "success");
 }
 
@@ -2114,7 +2447,7 @@ function previewLibraryItem(item) {
   let contentNode;
   if (item.type === "image") {
     const rawSrc = (item.previewUrl || item.base64Data || "").trim();
-    if (isSafeUrl(rawSrc, true)) {
+    if (rawSrc && isSafeUrl(rawSrc, true)) {
       const container = document.createElement("div");
       container.style.textAlign = "center";
       const img = document.createElement("img");
@@ -2123,9 +2456,40 @@ function previewLibraryItem(item) {
       img.style.cssText = "max-width:100%; max-height:480px; border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,0.3);";
       container.appendChild(img);
       contentNode = container;
+    } else if (item.blobId) {
+      const container = document.createElement("div");
+      container.style.textAlign = "center";
+      const img = document.createElement("img");
+      img.className = "loading-thumb";
+      img.alt = item.name || "Preview Image";
+      img.style.cssText = "max-width:100%; max-height:480px; border-radius:8px;";
+      container.appendChild(img);
+      contentNode = container;
+      getAttachmentBlob(item.blobId).then(rec => {
+        if (rec && rec.blob) {
+          const url = getObjectUrlForBlob(item.blobId, rec.blob);
+          if (url) {
+            img.src = url;
+            img.classList.remove("loading-thumb");
+            return;
+          }
+        }
+        container.replaceChildren();
+        const p = document.createElement("p");
+        p.className = "empty-hint";
+        p.textContent = "⚠️ Attachment unavailable (image not found in local storage).";
+        container.appendChild(p);
+      }).catch(() => {
+        container.replaceChildren();
+        const p = document.createElement("p");
+        p.className = "empty-hint";
+        p.textContent = "⚠️ Attachment unavailable (image not found in local storage).";
+        container.appendChild(p);
+      });
     } else {
       const p = document.createElement("p");
-      p.textContent = "Invalid or unsupported image preview source.";
+      p.className = "empty-hint";
+      p.textContent = "⚠️ Attachment unavailable (image not found in local storage).";
       contentNode = p;
     }
   } else if (item.textContent || item.instructions) {
@@ -2183,27 +2547,22 @@ async function syncLibraryToPCFolder() {
     for (const item of state.libraryItems) {
       const safeTitle = (item.name || "item").replace(/[^a-z0-9_\-\.]/gi, "_").slice(0, 40);
 
-      if (item.type === "image" && item.base64Data) {
-        // Convert base64 to Blob
-        const parts = item.base64Data.split(";base64,");
-        const contentType = parts[0].replace("data:", "") || "image/jpeg";
-        const byteCharacters = atob(parts[1] || "");
-        const byteArrays = [];
-        for (let offset = 0; offset < byteCharacters.length; offset += 512) {
-          const slice = byteCharacters.slice(offset, offset + 512);
-          const byteNumbers = new Array(slice.length);
-          for (let i = 0; i < slice.length; i++) {
-            byteNumbers[i] = slice.charCodeAt(i);
-          }
-          byteArrays.push(new Uint8Array(byteNumbers));
+      if (item.type === "image") {
+        let blob = null;
+        if (item.blobId) {
+          const rec = await getAttachmentBlob(item.blobId);
+          if (rec && rec.blob) blob = rec.blob;
+        } else if (item.base64Data) {
+          blob = dataUrlToBlob(item.base64Data);
         }
-        const blob = new Blob(byteArrays, { type: contentType });
-        const ext = contentType.includes("png") ? "png" : "jpg";
-        const fileHandle = await libFolder.getFileHandle(`${safeTitle}.${ext}`, { create: true });
-        const writable = await fileHandle.createWritable();
-        await writable.write(blob);
-        await writable.close();
-        count++;
+        if (blob) {
+          const ext = (blob.type || "").includes("png") ? "png" : "jpg";
+          const fileHandle = await libFolder.getFileHandle(`${safeTitle}.${ext}`, { create: true });
+          const writable = await fileHandle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          count++;
+        }
       } else {
         const textToSave = item.textContent || item.instructions || item.url || "";
         const ext = item.type === "skill" ? "md" : "txt";
@@ -2224,7 +2583,153 @@ async function syncLibraryToPCFolder() {
 // ==========================================================
 // CONVERSATIONS MANAGEMENT (LocalStorage + PC Auto-Save)
 // ==========================================================
-function loadSavedChats() {
+function prepareChatsForLocalStorage(chats) {
+  if (!chats || typeof chats !== "object") return {};
+  const cleaned = {};
+  for (const [id, chat] of Object.entries(chats)) {
+    if (!chat) continue;
+    cleaned[id] = {
+      ...chat,
+      messages: Array.isArray(chat.messages)
+        ? chat.messages.map(m => {
+            const cleanMsg = { ...m };
+            if (Array.isArray(cleanMsg.attachments)) {
+              cleanMsg.attachments = cleanMsg.attachments.map(att => {
+                const { base64Data, previewUrl, ...metaOnly } = att;
+                return metaOnly;
+              });
+            }
+            if (Array.isArray(cleanMsg.content)) {
+              const textPart = cleanMsg.content.find(p => p.type === "text");
+              cleanMsg.content = textPart ? textPart.text : (cleanMsg.displayContent || "");
+            }
+            return cleanMsg;
+          })
+        : []
+    };
+  }
+  return cleaned;
+}
+
+function recoverFromQuotaExceeded(preparedChats) {
+  const recovered = {};
+  for (const [id, chat] of Object.entries(preparedChats)) {
+    recovered[id] = {
+      ...chat,
+      messages: (chat.messages || []).map(m => {
+        const msgCopy = { ...m };
+        if (typeof msgCopy.content === "string" && msgCopy.content.length > 50000) {
+          msgCopy.content = msgCopy.content.slice(0, 50000) + "\n\n[...Message compressed to preserve storage quota...]";
+        }
+        return msgCopy;
+      })
+    };
+  }
+  return recovered;
+}
+
+function saveChatsToStorage() {
+  const prepared = prepareChatsForLocalStorage(state.chats);
+  let success = false;
+  try {
+    localStorage.setItem("roro_chats", JSON.stringify(prepared));
+    state.storageHealth = "healthy";
+    success = true;
+  } catch (err) {
+    console.warn("[RoroGPT] Quota exceeded saving chats to localStorage:", err);
+    state.storageHealth = "degraded";
+    try {
+      const recovered = recoverFromQuotaExceeded(prepared);
+      localStorage.setItem("roro_chats", JSON.stringify(recovered));
+      showToast("⚠️ Storage quota reached: Long messages compressed to avoid data loss.", "warning");
+      success = true;
+    } catch (recErr) {
+      console.error("[RoroGPT] Storage recovery failed:", recErr);
+      state.storageHealth = "unavailable";
+      showToast("⚠️ Browser storage full. Please export chats or clean up conversations.", "error");
+    }
+  }
+
+  updateStorageStatusUI();
+
+  if (state.currentChatId) {
+    try {
+      localStorage.setItem("roro_last_active_chat", state.currentChatId);
+    } catch {}
+    if (state.dirHandle && state.chats[state.currentChatId]) {
+      autoSaveChatToPC(state.chats[state.currentChatId]);
+    }
+  }
+  renderConversationsSidebar();
+  return success;
+}
+
+async function migrateLegacyChats() {
+  let modified = false;
+  const chats = state.chats;
+  if (!chats || typeof chats !== "object") return false;
+
+  for (const chat of Object.values(chats)) {
+    if (!Array.isArray(chat.messages)) continue;
+    for (const msg of chat.messages) {
+      if (Array.isArray(msg.attachments)) {
+        for (const att of msg.attachments) {
+          if (att.type === "image" && !att.blobId) {
+            const raw = att.base64Data || (att.previewUrl && att.previewUrl.startsWith("data:") ? att.previewUrl : null);
+            if (raw) {
+              const blobId = await storeAttachmentBlob(raw, att.mimeType || "image/jpeg");
+              att.blobId = blobId;
+              delete att.base64Data;
+              if (att.previewUrl && att.previewUrl.startsWith("data:")) {
+                delete att.previewUrl;
+              }
+              modified = true;
+            }
+          }
+        }
+      }
+      if (Array.isArray(msg.content)) {
+        for (const part of msg.content) {
+          if (part.type === "image_url" && part.image_url?.url?.startsWith("data:")) {
+            const blobId = await storeAttachmentBlob(part.image_url.url);
+            if (!msg.attachments) msg.attachments = [];
+            if (!msg.attachments.some(a => a.blobId === blobId)) {
+              msg.attachments.push({
+                id: "att_migrated_" + Date.now() + "_" + Math.random().toString(36).substr(2, 4),
+                type: "image",
+                name: "migrated_image.jpg",
+                blobId: blobId,
+                mimeType: "image/jpeg",
+                meta: "Migrated",
+                createdAt: Date.now()
+              });
+            }
+            modified = true;
+          }
+        }
+        const textPart = msg.content.find(p => p.type === "text");
+        msg.content = textPart ? textPart.text : (msg.displayContent || "");
+      }
+    }
+  }
+
+  if (modified) {
+    saveChatsToStorage();
+    console.log("[RoroGPT] Successfully migrated legacy image attachments to IndexedDB blobs.");
+  }
+  return modified;
+}
+
+function revokeUnusedObjectUrls() {
+  const composerBlobIds = new Set(state.attachments.map(a => a.blobId).filter(Boolean));
+  for (const [blobId, url] of activeObjectUrls.entries()) {
+    if (!composerBlobIds.has(blobId)) {
+      revokeObjectUrl(blobId);
+    }
+  }
+}
+
+async function loadSavedChats() {
   try {
     const raw = localStorage.getItem("roro_chats");
     if (raw) {
@@ -2234,25 +2739,20 @@ function loadSavedChats() {
     state.chats = {};
   }
 
-  // Load last active chat or create a fresh one
+  try {
+    await migrateLegacyChats();
+  } catch (e) {
+    console.warn("Legacy chat migration notice:", e);
+  }
+
+  updateStorageStatusUI();
+
   const lastActive = localStorage.getItem("roro_last_active_chat");
   if (lastActive && state.chats[lastActive]) {
     loadChat(lastActive);
   } else {
     createNewChat();
   }
-}
-
-function saveChatsToStorage() {
-  localStorage.setItem("roro_chats", JSON.stringify(state.chats));
-  if (state.currentChatId) {
-    localStorage.setItem("roro_last_active_chat", state.currentChatId);
-    // Auto-save this chat to PC folder if connected
-    if (state.dirHandle && state.chats[state.currentChatId]) {
-      autoSaveChatToPC(state.chats[state.currentChatId]);
-    }
-  }
-  renderConversationsSidebar();
 }
 
 function createNewChat() {
@@ -2274,8 +2774,11 @@ function createNewChat() {
 
 function loadChat(chatId) {
   if (!state.chats[chatId]) return;
+  revokeUnusedObjectUrls();
   state.currentChatId = chatId;
-  localStorage.setItem("roro_last_active_chat", chatId);
+  try {
+    localStorage.setItem("roro_last_active_chat", chatId);
+  } catch {}
 
   const chat = state.chats[chatId];
   renderMessages(chat.messages);
@@ -2409,6 +2912,21 @@ function renderMessages(messages) {
   scrollToBottom();
 }
 
+function renderAttachmentUnavailablePlaceholder(container, imgToReplace, name, meta) {
+  const badge = document.createElement("span");
+  badge.className = "msg-attachment-badge attachment-unavailable";
+  const iconSpan = document.createElement("span");
+  iconSpan.textContent = "⚠️ ";
+  const textSpan = document.createElement("span");
+  textSpan.textContent = `Attachment unavailable (${name || "Photo"}${meta ? " • " + meta : ""})`;
+  badge.append(iconSpan, textSpan);
+  if (imgToReplace && imgToReplace.parentNode === container) {
+    container.replaceChild(badge, imgToReplace);
+  } else {
+    container.appendChild(badge);
+  }
+}
+
 function appendMessageElement(msg, index) {
   const isUser = msg.role === "user";
   const row = document.createElement("div");
@@ -2438,24 +2956,58 @@ function appendMessageElement(msg, index) {
     attachContainer.className = "msg-attachments-container";
 
     msg.attachments.forEach(att => {
-      const rawSrc = (att.previewUrl || att.base64Data || "").trim();
-      if (att.type === "image" && isSafeUrl(rawSrc, true)) {
-        const img = document.createElement("img");
-        img.src = rawSrc;
-        img.className = "msg-attached-img";
-        img.alt = att.name || "Attachment";
-        img.title = att.name || "Attachment";
-        img.setAttribute("data-preview", "true");
-        img.addEventListener("click", () => {
-          const previewDiv = document.createElement("div");
-          previewDiv.style.textAlign = "center";
-          const pImg = document.createElement("img");
-          pImg.src = rawSrc;
-          pImg.style.cssText = "max-width:100%; border-radius:8px;";
-          previewDiv.appendChild(pImg);
-          openPreviewModal("🖼️ Photo", att.name || "Photo", previewDiv);
-        });
-        attachContainer.appendChild(img);
+      if (att.type === "image") {
+        const rawSrc = (att.previewUrl || att.base64Data || "").trim();
+        if (rawSrc && isSafeUrl(rawSrc, true)) {
+          const img = document.createElement("img");
+          img.src = rawSrc;
+          img.className = "msg-attached-img";
+          img.alt = att.name || "Attachment";
+          img.title = att.name || "Attachment";
+          img.setAttribute("data-preview", "true");
+          img.addEventListener("click", () => {
+            const previewDiv = document.createElement("div");
+            previewDiv.style.textAlign = "center";
+            const pImg = document.createElement("img");
+            pImg.src = rawSrc;
+            pImg.style.cssText = "max-width:100%; border-radius:8px;";
+            previewDiv.appendChild(pImg);
+            openPreviewModal("🖼️ Photo", att.name || "Photo", previewDiv);
+          });
+          attachContainer.appendChild(img);
+        } else if (att.blobId) {
+          const img = document.createElement("img");
+          img.className = "msg-attached-img loading-thumb";
+          img.alt = att.name || "Attachment";
+          img.title = att.name || "Attachment";
+          attachContainer.appendChild(img);
+
+          getAttachmentBlob(att.blobId).then(rec => {
+            if (rec && rec.blob) {
+              const url = getObjectUrlForBlob(att.blobId, rec.blob);
+              if (url) {
+                img.src = url;
+                img.classList.remove("loading-thumb");
+                img.setAttribute("data-preview", "true");
+                img.addEventListener("click", () => {
+                  const previewDiv = document.createElement("div");
+                  previewDiv.style.textAlign = "center";
+                  const pImg = document.createElement("img");
+                  pImg.src = url;
+                  pImg.style.cssText = "max-width:100%; border-radius:8px;";
+                  previewDiv.appendChild(pImg);
+                  openPreviewModal("🖼️ Photo", att.name || "Photo", previewDiv);
+                });
+                return;
+              }
+            }
+            renderAttachmentUnavailablePlaceholder(attachContainer, img, att.name, att.meta);
+          }).catch(() => {
+            renderAttachmentUnavailablePlaceholder(attachContainer, img, att.name, att.meta);
+          });
+        } else {
+          renderAttachmentUnavailablePlaceholder(attachContainer, null, att.name, att.meta);
+        }
       } else {
         const badge = document.createElement("span");
         badge.className = "msg-attachment-badge";
@@ -2645,26 +3197,22 @@ async function sendMessage() {
     });
   }
 
-  const promptText = (contextDocs ? contextDocs + "\n\n--- [USER QUESTION] ---\n" : "") + (text || "Please review and process the attached files.");
-
-  // Multimodal structure if images are attached
-  let userMessageContent = promptText;
-  if (photoAttachments.length > 0) {
-    userMessageContent = [
-      { type: "text", text: promptText },
-      ...photoAttachments.map(img => ({
-        type: "image_url",
-        image_url: { url: img.base64Data }
-      }))
-    ];
+  // Enforce total document context limit (250,000 characters)
+  if (contextDocs.length > 250000) {
+    contextDocs = contextDocs.slice(0, 250000) + "\n\n[...Combined document context truncated to 250,000 characters to fit context limits...]\n";
   }
 
-  const attachmentsSnapshot = [...state.attachments];
+  const promptText = (contextDocs ? contextDocs + "\n\n--- [USER QUESTION] ---\n" : "") + (text || "Please review and process the attached files.");
 
-  // Add User Message
+  const attachmentsSnapshot = state.attachments.map(att => {
+    const { base64Data, ...rest } = att;
+    return rest;
+  });
+
+  // Add User Message (Plain string content and lightweight metadata attachments only; no base64 in local state)
   const userMsg = {
     role: "user",
-    content: userMessageContent,
+    content: promptText,
     displayContent: text || `[Attached ${attachmentsSnapshot.length} file(s)]`,
     attachments: attachmentsSnapshot
   };
@@ -2730,12 +3278,52 @@ async function sendMessage() {
       chatHeaders["x-app-token"] = state.appToken;
     }
 
+    // Build outbound messages with temporary multimodal vision parts if image attachments are present
+    const outboundMessages = await Promise.all(
+      currentChat.messages.slice(0, -1).map(async (m) => {
+        if (m.role === "user" && Array.isArray(m.attachments)) {
+          const photos = m.attachments.filter(a => a.type === "image");
+          if (photos.length > 0) {
+            const imageParts = [];
+            for (const p of photos) {
+              let dataUrl = "";
+              if (p.blobId) {
+                const rec = await getAttachmentBlob(p.blobId);
+                if (rec && rec.blob) {
+                  dataUrl = await blobToDataUrl(rec.blob);
+                }
+              } else if (p.base64Data) {
+                dataUrl = p.base64Data;
+              }
+              if (dataUrl) {
+                imageParts.push({
+                  type: "image_url",
+                  image_url: { url: dataUrl }
+                });
+              }
+            }
+            if (imageParts.length > 0) {
+              const textContent = typeof m.content === "string" ? m.content : (m.displayContent || "");
+              return {
+                role: m.role,
+                content: [
+                  { type: "text", text: textContent },
+                  ...imageParts
+                ]
+              };
+            }
+          }
+        }
+        return { role: m.role, content: m.content };
+      })
+    );
+
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: chatHeaders,
       body: JSON.stringify({
         provider: state.activeProvider || inferProvider(state.activeModel),
-        messages: currentChat.messages.slice(0, -1).map(m => ({ role: m.role, content: m.content })),
+        messages: outboundMessages,
         model: state.activeModel,
         systemPrompt: state.systemPrompt,
         skillPrompt: state.activeSkill ? state.activeSkill.instructions : "",
@@ -3361,6 +3949,23 @@ function initEvents() {
     DOM.librarySyncPcBtn.addEventListener("click", syncLibraryToPCFolder);
   }
 
+  // Storage Clean Orphaned Blobs
+  if (DOM.cleanOrphanBlobsBtn) {
+    DOM.cleanOrphanBlobsBtn.addEventListener("click", async () => {
+      DOM.cleanOrphanBlobsBtn.disabled = true;
+      DOM.cleanOrphanBlobsBtn.textContent = "Cleaning...";
+      try {
+        const res = await cleanupOrphanedBlobs();
+        showToast(`Orphan cleanup complete: Removed ${res.cleaned} unused attachments (${res.remaining} active).`, "success");
+      } catch (err) {
+        showToast(`Cleanup failed: ${err.message}`, "error");
+      } finally {
+        DOM.cleanOrphanBlobsBtn.disabled = false;
+        DOM.cleanOrphanBlobsBtn.textContent = "🧹 Clean Orphaned Attachments";
+      }
+    });
+  }
+
   // Preview Modal Attach to Chat
   if (DOM.previewAttachToChatBtn) {
     DOM.previewAttachToChatBtn.addEventListener("click", () => {
@@ -3378,6 +3983,7 @@ function openSettingsModal() {
   DOM.systemPromptInput.value = state.systemPrompt;
   DOM.temperatureSlider.value = state.temperature;
   DOM.temperatureValue.textContent = state.temperature;
+  updateStorageStatusUI();
   DOM.settingsModal.classList.add("open");
 }
 

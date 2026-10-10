@@ -509,6 +509,28 @@
           </div>
         </div>
 
+        <!-- Storage & Persistence Health Section -->
+        <div class="form-group">
+          <label class="form-label">
+            <span>💾 Local Storage &amp; Persistence</span>
+            <span class="badge" id="storageHealthBadge" style="background: rgba(16, 185, 129, 0.2); color: #10b981;">🟢 Healthy</span>
+          </label>
+          <div class="pc-folder-panel" style="margin-top: 8px;">
+            <div class="folder-status-row">
+              <span class="storage-dot" id="storageIndicatorDot"></span>
+              <span class="folder-status-text" id="storageUsageText">Local Browser Storage (IndexedDB • 100% Private)</span>
+            </div>
+            <p class="form-help" style="margin: 8px 0 12px 0;">
+              Image binaries and documents are stored securely in IndexedDB on your device. You can safely clean up orphaned attachment blobs without deleting your conversation history.
+            </p>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button class="btn btn-secondary btn-sm" id="cleanOrphanBlobsBtn" type="button">
+                🧹 Clean Orphaned Attachments
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- Public Privacy Guarantee Banner -->
         <div class="vercel-callout">
           <div class="callout-icon">🔒</div>

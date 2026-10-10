@@ -1852,6 +1852,480 @@ async function runTests() {
     assert(false, `Test Suite 12 failed with error: ${err.message}\n${err.stack}`);
   }
 
+  // TEST SUITE 13: Binary Attachment IndexedDB Storage & Quota Safety (Fix 7)
+  console.log("\n--- 13. Binary Attachment IndexedDB Storage & Quota Safety (Fix 7) ---");
+  try {
+    const appSource = fs.readFileSync(path.join(__dirname, "public", "app.js"), "utf8");
+
+    // Setup fresh JSDOM environment for Fix 7 testing
+    const testDom13 = new JSDOM(
+      `<!DOCTYPE html><html><head></head><body>
+        <div id="toastContainer"></div>
+        <div id="previewModalIcon"></div>
+        <div id="previewModalTitle"></div>
+        <div id="previewModalBody"></div>
+        <div id="itemPreviewModal"></div>
+        <div id="previewAttachToChatBtn"></div>
+        <div id="chatViewport"><div id="messagesContainer"></div></div>
+        <div id="welcomeScreen"></div>
+        <div id="conversationsList"></div>
+        <div id="libraryGridContainer"></div>
+        <div id="attachmentsTray"></div>
+        <div id="cleanOrphanBlobsBtn"></div>
+        <div id="storageHealthBadge"></div>
+        <div id="storageIndicatorDot"></div>
+        <div id="storageUsageText"></div>
+        <input id="chatInput" value="" />
+        <button id="sendBtn"></button>
+        <div id="generatingBar"><span class="gen-text"></span></div>
+      </body></html>`,
+      { runScripts: "dangerously", url: "https://rorogpt.uk" }
+    );
+
+    const purifyPath = path.join(__dirname, "public", "purify.min.js");
+    testDom13.window.eval(fs.readFileSync(purifyPath, "utf8"));
+
+    // Prepare test context with mock IndexedDB
+    testDom13.window.eval(`
+      var DOM = window.DOM = {
+        toastContainer: document.getElementById("toastContainer"),
+        previewModalIcon: document.getElementById("previewModalIcon"),
+        previewModalTitle: document.getElementById("previewModalTitle"),
+        previewModalBody: document.getElementById("previewModalBody"),
+        itemPreviewModal: document.getElementById("itemPreviewModal"),
+        previewAttachToChatBtn: document.getElementById("previewAttachToChatBtn"),
+        chatViewport: document.getElementById("chatViewport"),
+        messagesContainer: document.getElementById("messagesContainer"),
+        welcomeScreen: document.getElementById("welcomeScreen"),
+        conversationsList: document.getElementById("conversationsList"),
+        libraryGridContainer: document.getElementById("libraryGridContainer"),
+        librarySearchInput: { value: "" },
+        attachmentsTray: document.getElementById("attachmentsTray"),
+        cleanOrphanBlobsBtn: document.getElementById("cleanOrphanBlobsBtn"),
+        storageHealthBadge: document.getElementById("storageHealthBadge"),
+        storageIndicatorDot: document.getElementById("storageIndicatorDot"),
+        storageUsageText: document.getElementById("storageUsageText"),
+        chatInput: document.getElementById("chatInput"),
+        sendBtn: document.getElementById("sendBtn"),
+        generatingBar: document.getElementById("generatingBar")
+      };
+
+      var sfx = window.sfx = { playPop: () => {}, playReceive: () => {} };
+
+      var state = window.state = {
+        activeModel: "gemini-2.0-flash",
+        activeProvider: "gemini",
+        activeLibFilter: "all",
+        libraryItems: [],
+        attachments: [],
+        models: [{ id: "gemini-2.0-flash", supportsVision: true }],
+        skills: [],
+        chats: {},
+        currentChatId: null,
+        storageHealth: "healthy",
+        isGenerating: false,
+        apiKey: "",
+        appToken: ""
+      };
+
+      var _idbStores = new Map();
+      var _idbUpgraded = false;
+      window.indexedDB = {
+        open: function(name, version) {
+          var req = { result: null, error: null };
+          setTimeout(() => {
+            var db = {
+              objectStoreNames: {
+                contains: function(s) { return _idbStores.has(s); }
+              },
+              createObjectStore: function(s, opts) {
+                if (!_idbStores.has(s)) {
+                  _idbStores.set(s, new Map());
+                }
+                return _idbStores.get(s);
+              },
+              transaction: function(storeName, mode) {
+                var m = _idbStores.get(storeName);
+                if (!m) {
+                  m = new Map();
+                  _idbStores.set(storeName, m);
+                }
+                var tx = {
+                  oncomplete: null,
+                  onerror: null,
+                  objectStore: function(sn) {
+                    return {
+                      put: function(item) {
+                        var key = item.id || Date.now();
+                        m.set(key, item);
+                      },
+                      get: function(key) {
+                        var r = { result: m.get(key) || null, onsuccess: null, onerror: null };
+                        setTimeout(() => { if (r.onsuccess) r.onsuccess(); }, 0);
+                        return r;
+                      },
+                      getAll: function() {
+                        var r = { result: Array.from(m.values()), onsuccess: null, onerror: null };
+                        setTimeout(() => { if (r.onsuccess) r.onsuccess(); }, 0);
+                        return r;
+                      },
+                      delete: function(key) {
+                        m.delete(key);
+                      }
+                    };
+                  }
+                };
+                setTimeout(() => { if (tx.oncomplete) tx.oncomplete(); }, 0);
+                return tx;
+              }
+            };
+            req.result = db;
+            if (!_idbUpgraded && req.onupgradeneeded) {
+              _idbUpgraded = true;
+              req.onupgradeneeded();
+            }
+            if (req.onsuccess) req.onsuccess();
+          }, 0);
+          return req;
+        }
+      };
+    `);
+
+    // Evaluate helpers, IDB functions, and attachment logic from app.js
+    const startHelperIdx = appSource.indexOf("function escapeHTML");
+    const endStartupIdx = appSource.indexOf("document.addEventListener(\"DOMContentLoaded\"");
+    const testCode = appSource.slice(startHelperIdx, endStartupIdx);
+    testDom13.window.eval(testCode);
+
+    const win = testDom13.window;
+
+    // 13.1 Schema upgrade: v2 to v3 with attachment_blobs store
+    assert(win.IDB_VERSION === 3, "Fix 7: Case 14 - IDB_VERSION is set to 3 for attachment blob storage");
+    assert(win.IDB_STORE_BLOBS === "attachment_blobs", "Fix 7: Case 14 - Dedicated IDB store 'attachment_blobs' is configured");
+
+    // 13.2 Case 1: Normal text conversations still persist cleanly across reloads using localStorage
+    win.state.chats = {
+      chat_text_1: {
+        id: "chat_text_1",
+        title: "Text Chat",
+        createdAt: 1000,
+        model: "gemini-2.0-flash",
+        messages: [
+          { role: "user", content: "Hello RoroGPT" },
+          { role: "assistant", content: "Hello! How can I help you today?" }
+        ]
+      }
+    };
+    win.state.currentChatId = "chat_text_1";
+    win.saveChatsToStorage();
+
+    const storedChatsRaw = win.localStorage.getItem("roro_chats");
+    assert(Boolean(storedChatsRaw), "Fix 7: Case 1 - roro_chats is saved to localStorage");
+    const parsedChats = JSON.parse(storedChatsRaw);
+    assert(parsedChats.chat_text_1.messages.length === 2, "Fix 7: Case 1 - Chat messages persist cleanly in localStorage");
+    assert(parsedChats.chat_text_1.messages[0].content === "Hello RoroGPT", "Fix 7: Case 1 - User text message persists");
+    assert(parsedChats.chat_text_1.messages[1].content.includes("Hello! How can I help"), "Fix 7: Case 1 - Assistant response persists");
+
+    // Clear and reload
+    win.state.chats = {};
+    await win.loadSavedChats();
+    assert(Boolean(win.state.chats.chat_text_1), "Fix 7: Case 1 - Conversation restored from localStorage on loadSavedChats");
+
+    // 13.3 Case 2: Image attachments store raw binary/blob data outside localStorage
+    const sampleBase64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    const blobId = await win.storeAttachmentBlob(sampleBase64, "image/png", "test_blob_1");
+    assert(blobId === "test_blob_1", "Fix 7: Case 2 - Attachment blob saved with expected blobId");
+
+    const retrievedBlob = await win.getAttachmentBlob("test_blob_1");
+    assert(retrievedBlob !== null && Boolean(retrievedBlob.blob), "Fix 7: Case 2 - Attachment binary retrieved from blob store");
+    assert(retrievedBlob.mimeType === "image/png", "Fix 7: Case 2 - Attachment blob preserves mimeType");
+
+    // 13.4 Case 3: localStorage.getItem("roro_chats") contains no base64 image data strings
+    win.state.chats.chat_with_img = {
+      id: "chat_with_img",
+      title: "Image Chat",
+      createdAt: 2000,
+      model: "gemini-2.0-flash",
+      messages: [
+        {
+          role: "user",
+          content: "Look at this picture",
+          attachments: [
+            {
+              id: "att_1",
+              type: "image",
+              name: "photo.png",
+              size: 1024,
+              mimeType: "image/png",
+              blobId: "test_blob_1",
+              meta: "1 KB",
+              // Intentionally supply base64Data or previewUrl to ensure prepareChatsForLocalStorage strips it
+              base64Data: sampleBase64,
+              previewUrl: sampleBase64
+            }
+          ]
+        }
+      ]
+    };
+    win.state.currentChatId = "chat_with_img";
+    win.saveChatsToStorage();
+
+    const storedRawWithImg = win.localStorage.getItem("roro_chats");
+    assert(!storedRawWithImg.includes(";base64,"), "Fix 7: Case 3 - Zero base64 payload strings stored in roro_chats localStorage");
+    assert(!storedRawWithImg.includes("data:image/"), "Fix 7: Case 3 - Zero data:image/ URLs stored in roro_chats localStorage");
+    const parsedImgChat = JSON.parse(storedRawWithImg);
+    const savedAtt = parsedImgChat.chat_with_img.messages[0].attachments[0];
+    assert(savedAtt.blobId === "test_blob_1", "Fix 7: Case 3 - Lightweight metadata with blobId preserved in localStorage");
+    assert(savedAtt.base64Data === undefined, "Fix 7: Case 3 - base64Data is completely stripped from localStorage");
+    assert(savedAtt.previewUrl === undefined, "Fix 7: Case 3 - previewUrl is completely stripped from localStorage");
+
+    // 13.5 Case 4: Loading an existing chat with image attachments successfully resolves preview from IndexedDB/Object URLs
+    win.renderMessages(win.state.chats.chat_with_img.messages);
+    const msgContainer = win.document.getElementById("messagesContainer");
+    const attachedImg = msgContainer.querySelector(".msg-attached-img");
+    assert(attachedImg !== null, "Fix 7: Case 4 - Attached image element rendered in message bubble");
+    // Wait microtask for getAttachmentBlob promise resolution
+    await new Promise(r => setTimeout(r, 20));
+    assert(attachedImg.getAttribute("data-preview") === "true", "Fix 7: Case 4 - Image preview resolution completed with click-to-preview attribute");
+
+    // 13.6 Case 5: Outbound vision request generates temporary base64 payload without persisting to localStorage
+    let interceptedChatBody = null;
+    const originalFetch = win.fetch;
+    win.fetch = async (url, opts) => {
+      if (url === "/api/chat") {
+        interceptedChatBody = JSON.parse(opts.body);
+        return {
+          ok: true,
+          body: {
+            getReader() {
+              let sent = false;
+              return {
+                async read() {
+                  if (!sent) {
+                    sent = true;
+                    return { done: false, value: new TextEncoder().encode('data: {"content":"I see a green square."}\\n\\ndata: [DONE]\\n\\n') };
+                  }
+                  return { done: true, value: undefined };
+                }
+              };
+            }
+          }
+        };
+      }
+      return originalFetch(url, opts);
+    };
+
+    win.state.attachments = [
+      {
+        id: "att_vision_1",
+        type: "image",
+        name: "test.png",
+        size: 512,
+        mimeType: "image/png",
+        blobId: "test_blob_1"
+      }
+    ];
+    win.DOM.chatInput.value = "Describe this uploaded photo";
+    await win.sendMessage();
+
+    assert(interceptedChatBody !== null, "Fix 7: Case 5 - Outbound /api/chat request initiated");
+    const outboundUserMsg = interceptedChatBody.messages[interceptedChatBody.messages.length - 1];
+    assert(Array.isArray(outboundUserMsg.content), "Fix 7: Case 5 - Outbound message content structured as multimodal array for vision model");
+    const imgPart = outboundUserMsg.content.find(p => p.type === "image_url");
+    assert(imgPart && imgPart.image_url.url.startsWith("data:image/"), "Fix 7: Case 5 - Temporary data URL constructed for outbound API payload");
+
+    // Verify localStorage has NO base64
+    const postSendStorage = win.localStorage.getItem("roro_chats");
+    assert(!postSendStorage.includes(";base64,"), "Fix 7: Case 5 - Outbound base64 payload NEVER persisted to localStorage");
+
+    // 13.7 Case 6 & 7: Idempotent legacy migration of chats containing base64 images
+    const legacyChats = {
+      legacy_chat_1: {
+        id: "legacy_chat_1",
+        title: "Old Chat with Base64",
+        createdAt: 500,
+        messages: [
+          {
+            role: "user",
+            content: "Here is an old image",
+            attachments: [
+              {
+                id: "att_old",
+                type: "image",
+                name: "legacy.png",
+                size: 2048,
+                mimeType: "image/png",
+                base64Data: sampleBase64,
+                previewUrl: sampleBase64
+              }
+            ]
+          }
+        ]
+      }
+    };
+    win.state.chats = legacyChats;
+    const modifiedFirst = await win.migrateLegacyChats();
+    assert(modifiedFirst === true, "Fix 7: Case 6 - migrateLegacyChats identifies and migrates legacy base64 attachments");
+    const migratedAtt = win.state.chats.legacy_chat_1.messages[0].attachments[0];
+    assert(Boolean(migratedAtt.blobId), "Fix 7: Case 6 - Legacy attachment assigned blobId in IndexedDB");
+    assert(migratedAtt.base64Data === undefined, "Fix 7: Case 6 - Inline base64Data removed during migration");
+
+    // Verify blob is in store
+    const retrievedMigrated = await win.getAttachmentBlob(migratedAtt.blobId);
+    assert(retrievedMigrated !== null && Boolean(retrievedMigrated.blob), "Fix 7: Case 6 - Legacy image binary safely stored in blob store");
+
+    // Test Case 7: Second migration is idempotent
+    const modifiedSecond = await win.migrateLegacyChats();
+    assert(modifiedSecond === false, "Fix 7: Case 7 - migrateLegacyChats is strictly idempotent (no re-migration)");
+    assert(win.state.chats.legacy_chat_1.messages[0].attachments[0].blobId === migratedAtt.blobId, "Fix 7: Case 7 - blobId remains stable across migrations");
+
+    // 13.8 Case 8: Missing or corrupt attachment blob renders safe placeholder
+    win.state.chats.broken_chat = {
+      id: "broken_chat",
+      title: "Missing Blob Chat",
+      createdAt: 600,
+      messages: [
+        {
+          role: "user",
+          content: "Missing photo test",
+          attachments: [
+            {
+              id: "att_missing",
+              type: "image",
+              name: "deleted_pic.jpg",
+              blobId: "non_existent_blob_999",
+              meta: "500 KB"
+            }
+          ]
+        }
+      ]
+    };
+    win.renderMessages(win.state.chats.broken_chat.messages);
+    await new Promise(r => setTimeout(r, 20));
+    const unavailableBadge = win.document.querySelector(".attachment-unavailable");
+    assert(unavailableBadge !== null, "Fix 7: Case 8 - Safe placeholder rendered when blob is missing");
+    assert(unavailableBadge.textContent.includes("deleted_pic.jpg"), "Fix 7: Case 8 - Placeholder displays original file name");
+    assert(unavailableBadge.textContent.includes("Attachment unavailable"), "Fix 7: Case 8 - Placeholder clearly indicates unavailable state");
+
+    // 13.9 Case 9: Simulated QuotaExceededError recovery in saveChatsToStorage()
+    let quotaErrorThrown = false;
+    const realSetItem = win.Storage.prototype.setItem;
+    win.Storage.prototype.setItem = function(key, val) {
+      if (key === "roro_chats") {
+        quotaErrorThrown = true;
+        const err = new Error("QuotaExceededError: DOM Exception 22");
+        err.name = "QuotaExceededError";
+        throw err;
+      }
+      return realSetItem.call(this, key, val);
+    };
+
+    win.saveChatsToStorage();
+    assert(quotaErrorThrown, "Fix 7: Case 9 - QuotaExceededError triggered on setItem");
+    assert(win.state.storageHealth === "degraded" || win.state.storageHealth === "unavailable", "Fix 7: Case 9 - Storage health transitions to degraded/unavailable");
+    assert(Boolean(win.state.chats.broken_chat), "Fix 7: Case 9 - In-memory conversation state NEVER wiped out on quota error");
+    win.Storage.prototype.setItem = realSetItem; // Restore
+
+    // 13.10 Case 10: Document and webpage text limits enforced with truncation notices
+    const hugeDocText = "A".repeat(150000);
+    const mockDocFile = {
+      name: "huge_document.txt",
+      size: 150000,
+      type: "text/plain",
+      text: async () => hugeDocText
+    };
+    await win.handleDocumentFiles([mockDocFile]);
+    const docAtt = win.state.attachments.find(a => a.name === "huge_document.txt");
+    assert(Boolean(docAtt), "Fix 7: Case 10 - Document parsed and attached");
+    assert(docAtt.textContent.length < 110000, "Fix 7: Case 10 - Document content truncated to limit");
+    assert(docAtt.textContent.includes("[...Document truncated"), "Fix 7: Case 10 - Clear truncation message embedded in text");
+    assert(docAtt.meta.includes("Truncated"), "Fix 7: Case 10 - Metadata badge includes 'Truncated'");
+    win.state.attachments = []; // Clear tray
+
+    // 13.11 Case 11: Personal Library reuses existing blobId without data duplication
+    win.state.attachments = [
+      {
+        id: "att_lib_test",
+        type: "image",
+        name: "shared_photo.png",
+        size: 2048,
+        blobId: "test_blob_1",
+        meta: "2 KB"
+      }
+    ];
+    await win.saveAttachmentToLibrary("att_lib_test");
+    assert(win.state.libraryItems.length > 0, "Fix 7: Case 11 - Item saved to Personal Library");
+    const savedLibItem = win.state.libraryItems.find(i => i.name === "shared_photo.png");
+    assert(savedLibItem.blobId === "test_blob_1", "Fix 7: Case 11 - Library item references existing blobId");
+    assert(savedLibItem.base64Data === undefined, "Fix 7: Case 11 - Library item contains zero base64 payload");
+
+    // Attach library item to chat
+    win.state.attachments = [];
+    win.attachLibraryItemToChat(savedLibItem);
+    const reattached = win.state.attachments[0];
+    assert(reattached.blobId === "test_blob_1", "Fix 7: Case 11 - Re-attached item reuses same blobId without duplicating data");
+    win.state.attachments = [];
+
+    // 13.12 Case 12: Orphaned image cleanup removes unreferenced blobs safely
+    const orphanBlobId = await win.storeAttachmentBlob(sampleBase64, "image/png", "orphan_blob_99");
+    assert(Boolean(await win.getAttachmentBlob("orphan_blob_99")), "Fix 7: Case 12 - Orphan blob created in store");
+
+    const cleanupResult = await win.cleanupOrphanedBlobs();
+    assert(cleanupResult.cleaned >= 1, "Fix 7: Case 12 - cleanupOrphanedBlobs detected and deleted unreferenced orphan blob");
+    assert((await win.getAttachmentBlob("orphan_blob_99")) === null, "Fix 7: Case 12 - Orphan blob removed from storage");
+    assert((await win.getAttachmentBlob("test_blob_1")) !== null, "Fix 7: Case 12 - Referenced active blob test_blob_1 preserved");
+
+    // 13.13 Case 13: Auto-save / PC-folder export writes image attachment files properly
+    let writtenFiles = {};
+    win.state.dirHandle = {
+      async queryPermission() { return "granted"; },
+      async requestPermission() { return "granted"; },
+      async getFileHandle(fileName, opts) {
+        return {
+          async createWritable() {
+            return {
+              async write(data) {
+                writtenFiles[fileName] = data;
+              },
+              async close() {}
+            };
+          }
+        };
+      }
+    };
+    const chatToExport = {
+      id: "chat_with_img",
+      title: "Image Chat",
+      createdAt: 2000,
+      model: "gemini-2.0-flash",
+      messages: [
+        {
+          role: "user",
+          content: "Look at this picture",
+          attachments: [
+            {
+              id: "att_1",
+              type: "image",
+              name: "photo.png",
+              size: 1024,
+              mimeType: "image/png",
+              blobId: "test_blob_1",
+              meta: "1 KB"
+            }
+          ]
+        }
+      ]
+    };
+    await win.autoSaveChatToPC(chatToExport);
+    const expectedExportFileName = `chat_with_img_photo.png`;
+    assert(Boolean(writtenFiles[expectedExportFileName]), "Fix 7: Case 13 - autoSaveChatToPC exports image attachment binary to PC folder");
+
+    win.fetch = originalFetch; // Restore
+
+  } catch (err) {
+    assert(false, `Test Suite 13 failed with error: ${err.message}\n${err.stack}`);
+  }
+
   // Summary
   console.log("\n========================================================");
   console.log(`   TOTAL TESTS: ${passed + failed} | PASSED: ${passed} | FAILED: ${failed}`);
