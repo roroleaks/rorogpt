@@ -7,13 +7,6 @@
 const DEFAULT_CHAT_MODEL = "qwen/qwen3.8-27b";
 const DEFAULT_EMBEDDING_MODEL = "free-fast-vector";
 
-function inferProvider(modelId) {
-  if (!modelId) return "groq";
-  if (modelId.startsWith("ollama/")) return "ollama";
-  if (modelId.startsWith("cerebras/")) return "cerebras";
-  if (modelId.startsWith("gemini-")) return "gemini";
-  return "groq";
-}
 
 let initialModel = localStorage.getItem("roro_active_model");
 if (!initialModel || initialModel.includes(":free") || initialModel.includes("openrouter") || initialModel.includes("meta-llama/")) {
@@ -368,6 +361,9 @@ function isSafeCssColor(color) {
   return false;
 }
 
+// ==========================================================
+// SHARED PROVIDER INFERENCE HELPER
+// ==========================================================
 function inferProvider(modelId) {
   if (!modelId) return "groq";
   if (modelId.startsWith("ollama/")) return "ollama";

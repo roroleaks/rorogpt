@@ -81,6 +81,47 @@ async function runTests() {
   const creatorStat = fs.statSync(path.join(__dirname, "public/creator.jpg"));
   assert(creatorStat.size > 10000, `Creator photo creator.jpg is present and valid (${creatorStat.size} bytes)`);
 
+  // Static Syntax Validation: public/app.js and server files pass node syntax check
+  const filesToSyntaxCheck = [
+    "public/app.js",
+    "server.js",
+    "api/chat.js",
+    "api/models.js",
+    "api/embeddings.js",
+    "api/fetch-url.js",
+    "api/_security.js"
+  ];
+  const { execFileSync } = await import("node:child_process");
+  for (const relPath of filesToSyntaxCheck) {
+    let syntaxPassed = true;
+    try {
+      execFileSync(process.execPath, ["--check", path.join(__dirname, relPath)], { stdio: "pipe" });
+    } catch {
+      syntaxPassed = false;
+    }
+    assert(syntaxPassed, `Syntax Check: ${relPath} passes JavaScript syntax validation (node --check)`);
+  }
+
+  // Regression Guard: Exactly one inferProvider declaration in public/app.js
+  const appJsSource = fs.readFileSync(path.join(__dirname, "public/app.js"), "utf8");
+  const inferProviderMatches = appJsSource.match(/(?:function\s+inferProvider\b|const\s+inferProvider\s*=|let\s+inferProvider\s*=|var\s+inferProvider\s*=)/g) || [];
+  assert(inferProviderMatches.length === 1, `Regression Guard: public/app.js contains exactly 1 inferProvider declaration (found ${inferProviderMatches.length})`);
+
+  // Regression Guard: Provider inference mappings (gemini, cerebras, ollama, groq fallback)
+  const fnMatch = appJsSource.match(/function\s+inferProvider\s*\([\s\S]*?\n\}/);
+  assert(Boolean(fnMatch), "inferProvider function body found in public/app.js");
+  const inferProviderFn = new Function(`${fnMatch[0]}; return inferProvider;`)();
+  assert(inferProviderFn("gemini-2.0-flash") === "gemini", "inferProvider: maps gemini-2.0-flash to gemini");
+  assert(inferProviderFn("gemini-1.5-pro") === "gemini", "inferProvider: maps gemini-1.5-pro to gemini");
+  assert(inferProviderFn("cerebras/llama3.1-8b") === "cerebras", "inferProvider: maps cerebras/* to cerebras");
+  assert(inferProviderFn("ollama/llama3.2") === "ollama", "inferProvider: maps ollama/* to ollama");
+  assert(inferProviderFn("qwen/qwen3.8-27b") === "groq", "inferProvider: maps Groq model to groq");
+  assert(inferProviderFn("llama-3.3-70b-versatile") === "groq", "inferProvider: maps Groq llama model to groq");
+  assert(inferProviderFn("") === "groq", "inferProvider: maps empty model string to groq");
+  assert(inferProviderFn(null) === "groq", "inferProvider: maps null model to groq");
+  assert(inferProviderFn(undefined) === "groq", "inferProvider: maps undefined model to groq");
+  assert(inferProviderFn("unknown-model-xyz") === "groq", "inferProvider: maps unknown model to groq");
+
   // TEST SUITE 2: Check UI layout, themes, & creator attribution
   console.log("\n--- 2. UI Layout: Corner Logo, Chat Icon, Dark Themes & Creator Attribution ---");
   const htmlContent = fs.readFileSync(path.join(__dirname, "public/index.html"), "utf8");
