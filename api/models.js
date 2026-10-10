@@ -137,13 +137,15 @@ export const FREE_MODELS_BY_PROVIDER = {
   ]
 };
 
-export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+import { handleCors } from "./_security.js";
 
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
+export default async function handler(req, res) {
+  if (!handleCors(req, res, "GET, OPTIONS")) {
+    return;
+  }
+
+  if (req.method !== "GET") {
+    return res.status(405).json({ error: "Method not allowed. Use GET." });
   }
 
   // Combined curated list of 100% strictly free models

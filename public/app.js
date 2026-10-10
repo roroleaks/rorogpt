@@ -30,6 +30,7 @@ const state = {
   activeModel: initialModel,
   activeEmbeddingModel: localStorage.getItem("roro_active_embed_model") || DEFAULT_EMBEDDING_MODEL,
   apiKey: localStorage.getItem("roro_api_key") || "",
+  appToken: localStorage.getItem("roro_app_token") || "",
   systemPrompt: localStorage.getItem("roro_system_prompt") || "",
   temperature: parseFloat(localStorage.getItem("roro_temperature") || "0.7"),
   currentTheme: initialTheme,
@@ -142,6 +143,8 @@ const DOM = {
   saveSettingsBtn: document.getElementById("saveSettingsBtn"),
   apiKeyInput: document.getElementById("apiKeyInput"),
   toggleApiKeyVisibility: document.getElementById("toggleApiKeyVisibility"),
+  appTokenInput: document.getElementById("appTokenInput"),
+  toggleAppTokenVisibility: document.getElementById("toggleAppTokenVisibility"),
   systemPromptInput: document.getElementById("systemPromptInput"),
   temperatureSlider: document.getElementById("temperatureSlider"),
   temperatureValue: document.getElementById("temperatureValue"),
@@ -1177,10 +1180,15 @@ async function fetchAndAttachWebLink() {
   DOM.fetchAndAttachUrlBtn.disabled = true;
 
   try {
+    const fetchHeaders = { "Content-Type": "application/json" };
+    if (state.appToken) {
+      fetchHeaders["x-app-token"] = state.appToken;
+    }
+
     const res = await fetch("/api/fetch-url", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url })
+      headers: fetchHeaders,
+      body: JSON.stringify({ url, appToken: state.appToken })
     });
 
     const data = await res.json();
@@ -2073,16 +2081,22 @@ async function sendMessage() {
   }, 1000);
 
   try {
+    const chatHeaders = { "Content-Type": "application/json" };
+    if (state.appToken) {
+      chatHeaders["x-app-token"] = state.appToken;
+    }
+
     const res = await fetch("/api/chat", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: chatHeaders,
       body: JSON.stringify({
         messages: currentChat.messages.slice(0, -1).map(m => ({ role: m.role, content: m.content })),
         model: state.activeModel,
         systemPrompt: state.systemPrompt,
         skillPrompt: state.activeSkill ? state.activeSkill.instructions : "",
         temperature: state.temperature,
-        apiKey: state.apiKey
+        apiKey: state.apiKey,
+        appToken: state.appToken
       }),
       signal: state.abortController.signal
     });
@@ -2404,6 +2418,10 @@ function initEvents() {
   // Settings Save
   DOM.saveSettingsBtn.addEventListener("click", () => {
     state.apiKey = DOM.apiKeyInput.value.trim();
+    if (DOM.appTokenInput) {
+      state.appToken = DOM.appTokenInput.value.trim();
+      localStorage.setItem("roro_app_token", state.appToken);
+    }
     state.systemPrompt = DOM.systemPromptInput.value.trim();
     state.temperature = parseFloat(DOM.temperatureSlider.value);
 
@@ -2422,6 +2440,15 @@ function initEvents() {
     DOM.apiKeyInput.type = isPass ? "text" : "password";
     DOM.toggleApiKeyVisibility.textContent = isPass ? "🔒" : "👁️";
   });
+
+  // App Token visibility toggle
+  if (DOM.toggleAppTokenVisibility && DOM.appTokenInput) {
+    DOM.toggleAppTokenVisibility.addEventListener("click", () => {
+      const isPass = DOM.appTokenInput.type === "password";
+      DOM.appTokenInput.type = isPass ? "text" : "password";
+      DOM.toggleAppTokenVisibility.textContent = isPass ? "🔒" : "👁️";
+    });
+  }
 
   // Temperature slider display
   DOM.temperatureSlider.addEventListener("input", () => {
@@ -2715,6 +2742,7 @@ function initEvents() {
 
 function openSettingsModal() {
   DOM.apiKeyInput.value = state.apiKey;
+  if (DOM.appTokenInput) DOM.appTokenInput.value = state.appToken || "";
   DOM.systemPromptInput.value = state.systemPrompt;
   DOM.temperatureSlider.value = state.temperature;
   DOM.temperatureValue.textContent = state.temperature;

@@ -1,17 +1,16 @@
-// Universal High-Performance Streaming Chat Endpoint for RoroGPT (Groq, Gemini, Cerebras, Local Ollama)
-// 100% Free inference with zero paid credits required
+import { handleCors, checkAuth, enforceRateLimit } from "./_security.js";
 
 export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
+  if (!handleCors(req, res, "POST, OPTIONS")) {
+    return;
   }
 
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed. Use POST." });
+  }
+
+  if (!enforceRateLimit(req, res, "chat")) {
+    return;
   }
 
   let body = req.body;
@@ -21,6 +20,12 @@ export default async function handler(req, res) {
     } catch {
       body = {};
     }
+  }
+
+  req.body = body;
+
+  if (!checkAuth(req, res)) {
+    return;
   }
 
   const {
@@ -34,7 +39,10 @@ export default async function handler(req, res) {
 
   const isLocalOllama = model.startsWith("ollama/") || customEndpoint.includes("11434");
 
-  const headerKey = req.headers["authorization"]?.replace("Bearer ", "").trim();
+  let headerKey = req.headers["authorization"]?.replace("Bearer ", "").trim() || "";
+  if (headerKey && process.env.APP_API_TOKEN && headerKey === process.env.APP_API_TOKEN) {
+    headerKey = ""; // App access token, not upstream provider key
+  }
   const envKey = (process.env.GROQ_API_KEY || process.env.GEMINI_API_KEY || process.env.CEREBRAS_API_KEY || "").trim();
   const finalApiKey = (clientApiKey && clientApiKey.trim()) || headerKey || envKey;
 

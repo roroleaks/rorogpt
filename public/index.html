@@ -432,6 +432,18 @@
           <small class="form-hint">Stored safely in browser. Groq and Gemini keys are <strong>100% Free</strong> with no credit card or purchase ever required.</small>
         </div>
 
+        <!-- Optional Deployment Access Token (APP_API_TOKEN) -->
+        <div class="form-group">
+          <label for="appTokenInput" class="form-label">
+            <span>Instance Access Token (Optional <code>APP_API_TOKEN</code>)</span>
+          </label>
+          <div class="input-with-action">
+            <input type="password" id="appTokenInput" placeholder="Leave empty for local dev; required if server is locked down" autocomplete="off">
+            <button class="input-action-btn" id="toggleAppTokenVisibility" title="Show/Hide">👁️</button>
+          </div>
+          <small class="form-hint">Only needed if your deployed instance is locked down with a server-side <code>APP_API_TOKEN</code>.</small>
+        </div>
+
         <!-- Custom System Prompt -->
         <div class="form-group">
           <label for="systemPromptInput" class="form-label">

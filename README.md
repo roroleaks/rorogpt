@@ -88,9 +88,40 @@ Or deploy via GitHub at [https://github.com/roroleaks/rorogpt](https://github.co
 
 ---
 
+## 🛡️ Security Access Boundary & Abuse Prevention
+
+RoroGPT includes a hardened access boundary designed to prevent abuse and proxy draining in deployed environments while maintaining zero-friction local development:
+
+### 1. Production API Lockdown (`APP_API_TOKEN`)
+- **Prevent Anonymous Key Drain**: In production mode (`NODE_ENV=production`), `/api/chat` and `/api/fetch-url` require a server-side `APP_API_TOKEN` to prevent unauthorized third parties from consuming your configured provider keys.
+- **Pass Token**: Supply your token via the `x-app-token` header, request body `appToken`, or directly in the **Settings ⚙️** modal under *Instance Access Token*.
+- **Local Dev Mode**: Running locally with `npm start` (`NODE_ENV=development`) allows immediate, tokenless use out of the box.
+
+### 2. Configurable CORS Allowlist (`ALLOWED_ORIGINS`)
+- Replaces unrestricted wildcards (`*`) with a strict, configurable origin allowlist (e.g. `ALLOWED_ORIGINS=https://rorogpt.uk,https://rorogpt.vercel.app`).
+- Disallowed cross-origin browser requests are rejected with **HTTP 403 Forbidden**.
+- In local development mode, loopback (`localhost`, `127.0.0.1`) is permitted automatically.
+
+### 3. Per-IP Rate Limiting (Sliding Window)
+- Bounded in-memory sliding window rate limiter protects server resources without unbounded memory growth:
+  - `RATE_LIMIT_WINDOW_MS`: Window duration in ms (default: `60000` = 1 minute).
+  - `RATE_LIMIT_MAX_CHAT`: Max chat requests per IP per window (default: `30`).
+  - `RATE_LIMIT_MAX_FETCH`: Max URL retrievals per IP per window (default: `20`).
+- Rejections return **HTTP 429** with a `Retry-After` header and clean JSON error messages.
+- *Production Note*: For multi-instance, distributed deployments, a shared store (such as Upstash Redis) is recommended.
+
+### 4. Hardened Security Headers
+All responses automatically include:
+- `X-Content-Type-Options: nosniff`
+- `Referrer-Policy: strict-origin-when-cross-origin`
+- `Permissions-Policy: camera=(self), microphone=(self), geolocation=(), interest-cohort=()`
+- `X-Frame-Options: SAMEORIGIN`
+
+---
+
 ## 🧪 Testing
 
-Run the automated test suite verifying static assets, layout, free models, vector embeddings, and streaming guards:
+Run the automated test suite verifying static assets, layout, free models, vector embeddings, streaming guards, and security access boundaries:
 ```bash
 node test.js
 ```

@@ -1,6 +1,7 @@
 // Secure Web Retrieval Endpoint with Strict SSRF Protection for RoroGPT
 import dns from "node:dns/promises";
 import net from "node:net";
+import { handleCors, checkAuth, enforceRateLimit } from "./_security.js";
 
 const MAX_BODY_BYTES = 1.5 * 1024 * 1024; // 1.5 MB max response size
 const FETCH_TIMEOUT_MS = 8000; // 8 seconds timeout
@@ -177,16 +178,16 @@ function extractReadableTextFromHTML(html) {
 }
 
 export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
+  if (!handleCors(req, res, "POST, OPTIONS")) {
+    return;
   }
 
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed. Use POST." });
+  }
+
+  if (!enforceRateLimit(req, res, "fetch")) {
+    return;
   }
 
   let body = req.body;
@@ -196,6 +197,12 @@ export default async function handler(req, res) {
     } catch {
       body = {};
     }
+  }
+
+  req.body = body;
+
+  if (!checkAuth(req, res)) {
+    return;
   }
 
   const { url: targetUrl, instruction = "" } = body || {};

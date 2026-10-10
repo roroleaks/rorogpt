@@ -4,7 +4,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import "dotenv/config";
 
-// Handlers
+// Security & Handlers
+import { applySecurityHeaders } from "./api/_security.js";
 import chatHandler from "./api/chat.js";
 import modelsHandler from "./api/models.js";
 import embeddingsHandler from "./api/embeddings.js";
@@ -63,6 +64,7 @@ function parseBody(req) {
 
 const server = http.createServer(async (req, res) => {
   enhanceResponse(res);
+  applySecurityHeaders(res);
 
   const url = new URL(req.url, `http://${req.headers.host}`);
   const pathname = url.pathname;
@@ -122,13 +124,17 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log("\n========================================================");
-  console.log("   🌈 RoroGPT - Colorful Free AI Chat (Vercel Ready)     ");
-  console.log("========================================================");
-  console.log(`   🚀 Local Server: http://localhost:${PORT}`);
-  const hasKey = Boolean(process.env.GROQ_API_KEY || process.env.GEMINI_API_KEY || process.env.CEREBRAS_API_KEY);
-  console.log(`   🔑 API Key:     ${hasKey ? "Free Key Configured in .env ✅" : "Not set (enter in UI Settings) ⚠️"}`);
-  console.log("   ☁️  Deploy:      Ready for Vercel deployment");
-  console.log("========================================================\n");
-});
+export { server, PORT };
+
+if (process.env.AUTORUN_SERVER !== "false") {
+  server.listen(PORT, () => {
+    console.log("\n========================================================");
+    console.log("   🌈 RoroGPT - Colorful Free AI Chat (Vercel Ready)     ");
+    console.log("========================================================");
+    console.log(`   🚀 Local Server: http://localhost:${PORT}`);
+    const hasKey = Boolean(process.env.GROQ_API_KEY || process.env.GEMINI_API_KEY || process.env.CEREBRAS_API_KEY);
+    console.log(`   🔑 API Key:     ${hasKey ? "Free Key Configured in .env ✅" : "Not set (enter in UI Settings) ⚠️"}`);
+    console.log("   ☁️  Deploy:      Ready for Vercel deployment");
+    console.log("========================================================\n");
+  });
+}
