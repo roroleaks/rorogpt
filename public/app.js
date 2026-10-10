@@ -252,17 +252,135 @@ const DOM = {
 };
 
 // ==========================================================
+// SAFE HTML ESCAPING & DOMPURIFY SANITIZATION (HIGH FIX 4)
+// ==========================================================
+function escapeHTML(str) {
+  if (!str) return "";
+  return String(str).replace(/[&<>'"]/g, tag => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "'": "&#39;",
+    '"': "&quot;"
+  }[tag] || tag));
+}
+
+// ==========================================================
 // TOAST NOTIFICATIONS
 // ==========================================================
 function showToast(message, type = "info") {
   const toast = document.createElement("div");
   toast.className = `toast ${type}`;
-  toast.innerHTML = `<span>${type === "success" ? "✅" : type === "error" ? "⚠️" : "ℹ️"}</span><span>${message}</span>`;
+  toast.innerHTML = `<span>${type === "success" ? "✅" : type === "error" ? "⚠️" : "ℹ️"}</span><span>${escapeHTML(message)}</span>`;
   DOM.toastContainer.appendChild(toast);
   setTimeout(() => {
     toast.style.opacity = "0";
     setTimeout(() => toast.remove(), 250);
   }, 3200);
+}
+
+let isPurifyConfigured = false;
+function setupSanitizer() {
+  if (!window.DOMPurify || isPurifyConfigured) return;
+  isPurifyConfigured = true;
+
+  try {
+    DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+      // 1. Enforce safe links: only allow http:, https:, relative # or /
+      if (node.tagName === "A") {
+        const href = node.getAttribute("href");
+        if (href) {
+          const trimmed = href.trim();
+          const lower = trimmed.toLowerCase();
+          if (
+            lower.startsWith("javascript:") ||
+            lower.startsWith("vbscript:") ||
+            lower.startsWith("data:") ||
+            lower.startsWith("file:")
+          ) {
+            node.removeAttribute("href");
+          } else if (
+            lower.startsWith("http://") ||
+            lower.startsWith("https://") ||
+            lower.startsWith("#") ||
+            lower.startsWith("/")
+          ) {
+            node.setAttribute("target", "_blank");
+            node.setAttribute("rel", "noopener noreferrer");
+          } else {
+            node.removeAttribute("href");
+          }
+        }
+      }
+
+      // 2. Enforce safe image sources: restrict to http:, https:, or safe data:image/
+      if (node.tagName === "IMG") {
+        const src = node.getAttribute("src");
+        if (src) {
+          const lower = src.trim().toLowerCase();
+          if (
+            !lower.startsWith("http://") &&
+            !lower.startsWith("https://") &&
+            !lower.startsWith("data:image/")
+          ) {
+            node.removeAttribute("src");
+          }
+        }
+      }
+
+      // 3. Prevent CSS-based script or exfiltration vectors through inline style
+      if (node.hasAttribute("style")) {
+        const style = node.getAttribute("style");
+        if (/url\(|expression\(|@import|-moz-binding|behavior/i.test(style)) {
+          node.removeAttribute("style");
+        }
+      }
+
+      // 4. Strip any lingering inline event handler attributes
+      for (const attr of Array.from(node.attributes || [])) {
+        if (attr.name.toLowerCase().startsWith("on")) {
+          node.removeAttribute(attr.name);
+        }
+      }
+    });
+  } catch (err) {
+    console.warn("Error setting up DOMPurify hooks", err);
+  }
+}
+
+/**
+ * Universal HTML Sanitizer boundary for all model outputs, imported chats, and previews.
+ */
+function sanitizeRenderedHtml(dirtyHtml) {
+  if (!dirtyHtml || typeof dirtyHtml !== "string") return "";
+
+  if (window.DOMPurify) {
+    setupSanitizer();
+    try {
+      return DOMPurify.sanitize(dirtyHtml, {
+        USE_PROFILES: { html: true, mathMl: true, svg: true },
+        FORBID_TAGS: [
+          "script", "iframe", "object", "embed", "base", "form",
+          "input", "textarea", "button", "select", "style", "link",
+          "meta", "frame", "frameset", "applet"
+        ],
+        FORBID_ATTR: [
+          "onerror", "onload", "onclick", "onmouseover", "onfocus",
+          "onblur", "onchange", "onsubmit", "onreset", "onkeydown",
+          "onkeypress", "onkeyup", "ondblclick", "oncontextmenu"
+        ],
+        ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+        ADD_ATTR: ["target", "rel"]
+      });
+    } catch (err) {
+      console.warn("DOMPurify execution failed, falling back to escaped text", err);
+      return escapeHTML(dirtyHtml);
+    }
+  }
+
+  // Safe Fallback: If DOMPurify is unavailable, NEVER output raw HTML
+  console.warn("DOMPurify is unavailable. Rendering escaped plain text for safety.");
+  return escapeHTML(dirtyHtml);
 }
 
 // ==========================================================
@@ -278,16 +396,30 @@ function setupMarkdown() {
           const language = hljs.getLanguage(lang) ? lang : "plaintext";
           return hljs.highlight(code, { language }).value;
         }
-        return code;
+        return escapeHTML(code);
       }
     });
   }
 }
 
-// Render Markdown safely with Code Copy wrapper
+// Render Markdown safely with Code Copy wrapper & DOMPurify Boundary
 function renderMarkdown(rawText) {
   if (!rawText) return "";
-  let html = window.marked ? marked.parse(rawText) : rawText;
+  const text = typeof rawText === "string"
+    ? rawText
+    : (Array.isArray(rawText) ? rawText.map(p => (p && typeof p === "object" ? p.text || "" : String(p))).join("") : String(rawText));
+
+  let html = "";
+  if (window.marked) {
+    try {
+      html = marked.parse(text);
+    } catch (err) {
+      console.warn("Marked parse error", err);
+      html = escapeHTML(text);
+    }
+  } else {
+    html = escapeHTML(text);
+  }
 
   // Render LaTeX math formulas if KaTeX is loaded
   if (window.katex) {
@@ -295,19 +427,26 @@ function renderMarkdown(rawText) {
     html = html.replace(/\$\$([\s\S]*?)\$\$/g, (match, formula) => {
       try {
         return `<div class="katex-display">${katex.renderToString(formula.trim(), { displayMode: true, throwOnError: false })}</div>`;
-      } catch { return match; }
+      } catch {
+        return escapeHTML(match);
+      }
     });
     // Inline Math $ ... $
     html = html.replace(/\$([^\$\n]+?)\$/g, (match, formula) => {
       try {
         return katex.renderToString(formula.trim(), { displayMode: false, throwOnError: false });
-      } catch { return match; }
+      } catch {
+        return escapeHTML(match);
+      }
     });
   }
 
+  // Sanitize the resulting HTML through DOMPurify boundary BEFORE attaching to DOM
+  const cleanHtml = sanitizeRenderedHtml(html);
+
   // Wrap <pre><code> with colorful header & copy button
   const tempDiv = document.createElement("div");
-  tempDiv.innerHTML = html;
+  tempDiv.innerHTML = cleanHtml;
 
   tempDiv.querySelectorAll("pre").forEach(pre => {
     const code = pre.querySelector("code");
@@ -326,7 +465,7 @@ function renderMarkdown(rawText) {
     const header = document.createElement("div");
     header.className = "code-header";
     header.innerHTML = `
-      <span class="code-lang">💻 ${lang.toUpperCase()}</span>
+      <span class="code-lang">💻 ${escapeHTML(lang.toUpperCase())}</span>
       <button class="copy-code-btn" title="Copy code">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
         <span>Copy</span>
@@ -882,7 +1021,13 @@ function renderAttachmentsTray() {
 
     let visual = "";
     if (att.type === "image" && (att.previewUrl || att.base64Data)) {
-      visual = `<img src="${att.previewUrl || att.base64Data}" class="chip-thumbnail" alt="${escapeHTML(att.name)}">`;
+      const rawSrc = (att.previewUrl || att.base64Data).trim();
+      const lower = rawSrc.toLowerCase();
+      if (lower.startsWith("data:image/") || lower.startsWith("http://") || lower.startsWith("https://")) {
+        visual = `<img src="${escapeHTML(rawSrc)}" class="chip-thumbnail" alt="${escapeHTML(att.name)}">`;
+      } else {
+        visual = `<span class="chip-icon">🖼️</span>`;
+      }
     } else {
       const icon = att.type === "weblink" ? "🔗" : att.type === "skill" ? "⚡" : "📄";
       visual = `<span class="chip-icon">${icon}</span>`;
@@ -1523,7 +1668,13 @@ function renderLibraryGrid() {
 
     let visual = "";
     if (item.type === "image" && (item.previewUrl || item.base64Data)) {
-      visual = `<img src="${item.previewUrl || item.base64Data}" class="lib-card-img-thumb" alt="${escapeHTML(item.name)}">`;
+      const rawSrc = (item.previewUrl || item.base64Data).trim();
+      const lower = rawSrc.toLowerCase();
+      if (lower.startsWith("data:image/") || lower.startsWith("http://") || lower.startsWith("https://")) {
+        visual = `<img src="${escapeHTML(rawSrc)}" class="lib-card-img-thumb" alt="${escapeHTML(item.name)}">`;
+      } else {
+        visual = `<span class="lib-card-icon">🖼️</span>`;
+      }
     } else {
       const icon = item.type === "weblink" ? "🔗" : item.type === "skill" ? "⚡" : "📄";
       visual = `<span class="lib-card-icon">${icon}</span>`;
@@ -1579,7 +1730,13 @@ function attachLibraryItemToChat(item) {
 function previewLibraryItem(item) {
   let contentHtml = "";
   if (item.type === "image") {
-    contentHtml = `<div style="text-align:center;"><img src="${item.previewUrl || item.base64Data}" style="max-width:100%; max-height:480px; border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,0.3);"></div>`;
+    const rawSrc = (item.previewUrl || item.base64Data || "").trim();
+    const lower = rawSrc.toLowerCase();
+    if (lower.startsWith("data:image/") || lower.startsWith("http://") || lower.startsWith("https://")) {
+      contentHtml = `<div style="text-align:center;"><img src="${escapeHTML(rawSrc)}" style="max-width:100%; max-height:480px; border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,0.3);"></div>`;
+    } else {
+      contentHtml = `<p>Invalid or unsupported image preview source.</p>`;
+    }
   } else if (item.textContent) {
     contentHtml = `<pre style="white-space:pre-wrap; font-family:var(--font-mono); font-size:0.84rem;">${escapeHTML(item.textContent)}</pre>`;
   } else if (item.instructions) {
@@ -1595,7 +1752,7 @@ function previewLibraryItem(item) {
 function openPreviewModal(icon, title, bodyHtml, itemToAttach = null) {
   DOM.previewModalIcon.textContent = icon;
   DOM.previewModalTitle.textContent = title;
-  DOM.previewModalBody.innerHTML = bodyHtml;
+  DOM.previewModalBody.innerHTML = sanitizeRenderedHtml(bodyHtml);
   state.previewPendingItem = itemToAttach;
 
   if (itemToAttach) {
@@ -1832,8 +1989,10 @@ function appendMessageElement(msg, index) {
   if (isUser && msg.attachments && msg.attachments.length > 0) {
     let chips = "";
     msg.attachments.forEach(att => {
-      if (att.type === "image" && (att.previewUrl || att.base64Data)) {
-        chips += `<img src="${att.previewUrl || att.base64Data}" class="msg-attached-img" alt="${escapeHTML(att.name)}" title="${escapeHTML(att.name)}" data-preview="true">`;
+      const rawSrc = (att.previewUrl || att.base64Data || "").trim();
+      const lower = rawSrc.toLowerCase();
+      if (att.type === "image" && (lower.startsWith("data:image/") || lower.startsWith("http://") || lower.startsWith("https://"))) {
+        chips += `<img src="${escapeHTML(rawSrc)}" class="msg-attached-img" alt="${escapeHTML(att.name)}" title="${escapeHTML(att.name)}" data-preview="true">`;
       } else {
         const icon = att.type === "weblink" ? "🔗" : att.type === "skill" ? "⚡" : "📄";
         chips += `<span class="msg-attachment-badge"><span>${icon}</span><span>${escapeHTML(att.name)}</span></span>`;
@@ -1882,7 +2041,7 @@ function appendMessageElement(msg, index) {
   // Attach click listener on user message attached images to preview full-screen
   row.querySelectorAll(".msg-attached-img").forEach(img => {
     img.addEventListener("click", () => {
-      openPreviewModal("🖼️ Photo", img.title || "Photo", `<div style="text-align:center;"><img src="${img.src}" style="max-width:100%; border-radius:8px;"></div>`);
+      openPreviewModal("🖼️ Photo", img.title || "Photo", `<div style="text-align:center;"><img src="${escapeHTML(img.src)}" style="max-width:100%; border-radius:8px;"></div>`);
     });
   });
 
@@ -1923,17 +2082,6 @@ function appendMessageElement(msg, index) {
 
 function scrollToBottom() {
   DOM.chatViewport.scrollTop = DOM.chatViewport.scrollHeight;
-}
-
-function escapeHTML(str) {
-  if (!str) return "";
-  return str.replace(/[&<>'"]/g, tag => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    "'": "&#39;",
-    '"': "&quot;"
-  }[tag] || tag));
 }
 
 // Text-to-Speech

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { JSDOM } from "jsdom";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -30,6 +31,7 @@ async function runTests() {
     "public/index.html",
     "public/style.css",
     "public/app.js",
+    "public/purify.min.js",
     "public/logo.jpg",
     "public/creator.jpg",
     "public/favicon.svg",
@@ -914,6 +916,181 @@ async function runTests() {
     if (spawnedServer) {
       spawnedServer.close();
     }
+  }
+
+  // TEST SUITE 10: Client-Side Markdown Sanitization & Stored XSS Prevention (High Fix 4)
+  console.log("\n--- 10. Client-Side Markdown Sanitization & Stored XSS Prevention (High Fix 4) ---");
+  try {
+    // 10.1 Pinned dependency dompurify in package.json
+    const pkgJson = JSON.parse(fs.readFileSync(path.join(__dirname, "package.json"), "utf8"));
+    const dompurifyVer = pkgJson.dependencies && pkgJson.dependencies.dompurify;
+    assert(Boolean(dompurifyVer && /^\d+\.\d+\.\d+$/.test(dompurifyVer)), "High Fix 4: dompurify is pinned to exact version in package.json (no ^ or ~)");
+
+    // 10.2 Pinned dependency jsdom in package.json
+    const jsdomVer = pkgJson.dependencies && pkgJson.dependencies.jsdom;
+    assert(Boolean(jsdomVer && /^\d+\.\d+\.\d+$/.test(jsdomVer)), "High Fix 4: jsdom is pinned to exact version in package.json (no ^ or ~)");
+
+    // 10.3 Offline / local bundle public/purify.min.js
+    const purifyLocalPath = path.join(__dirname, "public", "purify.min.js");
+    const purifyStat = fs.existsSync(purifyLocalPath) && fs.statSync(purifyLocalPath);
+    assert(Boolean(purifyStat && purifyStat.size > 10000), "High Fix 4: Local public/purify.min.js bundle exists and is >10KB for offline availability");
+
+    // 10.4 public/index.html loads purify.min.js
+    const indexHtml = fs.readFileSync(path.join(__dirname, "public", "index.html"), "utf8");
+    assert(indexHtml.includes('<script src="/purify.min.js"></script>'), "High Fix 4: public/index.html loads local /purify.min.js script");
+
+    // 10.5 public/app.js single escapeHTML and sanitizer pipeline setup
+    const appSource = fs.readFileSync(path.join(__dirname, "public", "app.js"), "utf8");
+    const escapeMatches = appSource.match(/function\s+escapeHTML\s*\(/g) || [];
+    assert(escapeMatches.length === 1, "High Fix 4: public/app.js contains exactly one declaration of escapeHTML");
+    assert(appSource.includes("function setupSanitizer"), "High Fix 4: setupSanitizer defined in public/app.js");
+    assert(appSource.includes("function sanitizeRenderedHtml"), "High Fix 4: sanitizeRenderedHtml defined in public/app.js");
+    assert(appSource.includes("function renderMarkdown"), "High Fix 4: renderMarkdown defined in public/app.js");
+
+    // Setup JSDOM environment for client-side pipeline verification
+    const purifyJsCode = fs.readFileSync(purifyLocalPath, "utf8");
+    const testDom = new JSDOM("<!DOCTYPE html><html><head></head><body><div id=\"toastContainer\"></div><div id=\"previewModalIcon\"></div><div id=\"previewModalTitle\"></div><div id=\"previewModalBody\"></div><div id=\"chatViewport\"></div><div id=\"messagesContainer\"></div></body></html>", { runScripts: "dangerously" });
+    testDom.window.eval(purifyJsCode);
+
+    // Extract sanitizer & markdown pipeline chunk from app.js without DOMContentLoaded initialization
+    const sliceStart = appSource.indexOf("function escapeHTML");
+    const sliceEnd = appSource.indexOf("THEME HANDLING");
+    assert(sliceStart !== -1 && sliceEnd !== -1 && sliceEnd > sliceStart, "High Fix 4: Sanitizer chunk successfully located in app.js");
+    testDom.window.eval(appSource.slice(sliceStart, sliceEnd));
+
+    const sanitize = testDom.window.sanitizeRenderedHtml;
+    assert(typeof sanitize === "function", "High Fix 4: sanitizeRenderedHtml is callable in DOM environment");
+
+    // 10.6 Dangerous payload 1: <script>alert(1)</script>
+    const resScript = sanitize("<script>alert(1)</script>");
+    assert(!resScript.toLowerCase().includes("<script") && !resScript.toLowerCase().includes("alert(1)"), "High Fix 4: Payload 1 - <script> tag completely removed");
+
+    // 10.7 Dangerous payload 2: <img src=x onerror=alert(1)>
+    const resImgError = sanitize("<img src=x onerror=alert(1)>");
+    assert(!resImgError.toLowerCase().includes("onerror") && !resImgError.toLowerCase().includes("alert(1)"), "High Fix 4: Payload 2 - Inline onerror handler completely removed");
+
+    // 10.8 Dangerous payload 3: <a href="javascript:alert(1)">click</a>
+    const resJsLink = sanitize('<a href="javascript:alert(1)">click</a>');
+    assert(!resJsLink.toLowerCase().includes("javascript:") && !resJsLink.toLowerCase().includes("alert(1)") && !resJsLink.includes('href='), "High Fix 4: Payload 3 - javascript: pseudo-protocol link removed");
+
+    // 10.9 Dangerous payload 4: <iframe src="javascript:alert(1)"></iframe>
+    const resIframe = sanitize('<iframe src="javascript:alert(1)"></iframe>');
+    assert(!resIframe.toLowerCase().includes("<iframe") && !resIframe.toLowerCase().includes("alert(1)"), "High Fix 4: Payload 4 - <iframe> element completely stripped");
+
+    // 10.10 Dangerous payload 5: <svg onload=alert(1)><circle /></svg>
+    const resSvg = sanitize("<svg onload=alert(1)><circle /></svg>");
+    assert(!resSvg.toLowerCase().includes("onload") && !resSvg.toLowerCase().includes("alert(1)"), "High Fix 4: Payload 5 - SVG onload attribute stripped");
+
+    // 10.11 Dangerous payload 6: <div style="background:url(javascript:alert(1))">text</div>
+    const resCss = sanitize('<div style="background:url(javascript:alert(1))">text</div>');
+    assert(!resCss.toLowerCase().includes("url(") && !resCss.toLowerCase().includes("javascript:"), "High Fix 4: Payload 6 - CSS url(javascript:...) injection stripped");
+
+    // 10.12 Dangerous payload 7: <a href="data:text/html,<script>alert(1)</script>">data link</a>
+    const resDataLink = sanitize('<a href="data:text/html,<script>alert(1)</script>">data link</a>');
+    assert(!resDataLink.toLowerCase().includes("data:") && !resDataLink.toLowerCase().includes("<script") && !resDataLink.includes('href='), "High Fix 4: Payload 7 - data: text/html pseudo-protocol link removed");
+
+    // 10.13 Safe Markdown formatting preserved
+    testDom.window.marked = {
+      parse: (str) => {
+        return str
+          .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+          .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+          .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+          .replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>')
+          .replace(/\*(.*?)\*/gim, '<em>$1</em>')
+          .replace(/^\- (.*$)/gim, '<ul><li>$1</li></ul>')
+          .replace(/\[(.*?)\]\((.*?)\)/gim, '<a href="$2">$1</a>');
+      }
+    };
+
+    const safeMd = "# Test Heading\n**Bold Text** and *Italic Text*\n- List item 1\n[Safe Link](https://example.com)";
+    const renderedSafe = testDom.window.renderMarkdown(safeMd);
+    assert(renderedSafe.includes("<h1>Test Heading</h1>"), "High Fix 4: Markdown heading renders properly");
+    assert(renderedSafe.includes("<strong>Bold Text</strong>"), "High Fix 4: Markdown bold formatting renders properly");
+    assert(renderedSafe.includes("<em>Italic Text</em>"), "High Fix 4: Markdown italic formatting renders properly");
+    assert(renderedSafe.includes("<li>List item 1</li>"), "High Fix 4: Markdown list item renders properly");
+
+    // 10.14 Link normalization: https link receives target="_blank" and rel="noopener noreferrer"
+    assert(renderedSafe.includes('href="https://example.com"'), "High Fix 4: Safe HTTPS link preserved");
+    assert(renderedSafe.includes('target="_blank"'), "High Fix 4: Safe link receives target='_blank'");
+    assert(renderedSafe.includes('rel="noopener noreferrer"'), "High Fix 4: Safe link receives rel='noopener noreferrer'");
+
+    // 10.15 Unsafe link schemes (vbscript:, file:) stripped
+    const resVbs = sanitize('<a href="vbscript:msgbox(1)">vbs</a>');
+    const resFile = sanitize('<a href="file:///C:/Windows/win.ini">file</a>');
+    assert(!resVbs.includes('href="vbscript:') && !resFile.includes('href="file:'), "High Fix 4: vbscript: and file: links stripped of href");
+
+    // 10.16 Code block wrapper with copy button
+    testDom.window.marked = {
+      parse: (str) => '<pre><code class="language-python">print("secure")</code></pre>'
+    };
+    const codeRendered = testDom.window.renderMarkdown('```python\nprint("secure")\n```');
+    assert(codeRendered.includes('class="code-block-wrapper"'), "High Fix 4: Code block is wrapped in .code-block-wrapper");
+    assert(codeRendered.includes('class="code-header"'), "High Fix 4: Code block contains header bar");
+    assert(codeRendered.includes('class="copy-code-btn"'), "High Fix 4: Code block contains copy button");
+    assert(codeRendered.includes('print("secure")'), "High Fix 4: Code block content preserved verbatim");
+
+    // 10.17 KaTeX math formulas intact without introducing XSS
+    testDom.window.katex = {
+      renderToString: (formula, opts) => {
+        return `<span class="katex-math">${testDom.window.escapeHTML(formula)}</span>`;
+      }
+    };
+    testDom.window.marked = { parse: (str) => str };
+    const mathRendered = testDom.window.renderMarkdown("Calculate $$E=mc^2$$ and inline $a^2 + b^2 = c^2$ <script>alert(1)</script>");
+    assert(mathRendered.includes('class="katex-display"'), "High Fix 4: KaTeX display formula rendered");
+    assert(mathRendered.includes('E=mc^2'), "High Fix 4: KaTeX formula content preserved");
+    assert(!mathRendered.includes("<script") && !mathRendered.includes("alert(1)"), "High Fix 4: Exploit payload beside math stripped");
+
+    // 10.18 Multi-chunk streaming simulation
+    testDom.window.marked = {
+      parse: (str) => {
+        return str
+          .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+          .replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2">$1</a>');
+      }
+    };
+    const streamingChunks = [
+      "Here is ",
+      "some **bold** ",
+      "text and <img src=x ",
+      "onerror=alert(1)> image ",
+      "with [click](javascript:alert(1)) link."
+    ];
+    let accumulated = "";
+    let intermediateExploitDetected = false;
+    for (const chunk of streamingChunks) {
+      accumulated += chunk;
+      const intermediateHtml = testDom.window.renderMarkdown(accumulated);
+      if (intermediateHtml.includes("onerror") || intermediateHtml.includes("javascript:") || intermediateHtml.includes("<script")) {
+        intermediateExploitDetected = true;
+      }
+    }
+    assert(!intermediateExploitDetected, "High Fix 4: Multi-chunk streaming render never exposes executable markup during streaming");
+
+    // 10.19 Stored XSS defense (simulated message reload from storage)
+    const storedMaliciousMsg = {
+      id: "msg_stored_999",
+      role: "assistant",
+      content: "Hello! Here is your result: <img src=x onerror=alert(document.cookie)> and <svg onload=alert(1)>.",
+      reasoning: "Step 1: Check <script>alert(1)</script>",
+      model: "mistralai/mistral-small-3"
+    };
+    const renderedStoredContent = testDom.window.renderMarkdown(storedMaliciousMsg.content);
+    assert(!renderedStoredContent.includes("onerror"), "High Fix 4: Stored XSS - Stored assistant message has onerror stripped upon render");
+    assert(!renderedStoredContent.includes("onload"), "High Fix 4: Stored XSS - Stored assistant message has onload stripped upon render");
+    assert(!renderedStoredContent.includes("document.cookie"), "High Fix 4: Stored XSS - Cookie exfiltration payload neutralized");
+
+    // 10.20 Fail-closed fallback: When DOMPurify is unavailable, renders escaped text (NEVER raw HTML)
+    const cachedPurify = testDom.window.DOMPurify;
+    testDom.window.DOMPurify = null;
+    const fallbackSanitized = testDom.window.sanitizeRenderedHtml("<b>Bold</b><script>alert('pwned')</script>");
+    assert(fallbackSanitized.includes("&lt;script&gt;alert(&#39;pwned&#39;)&lt;/script&gt;"), "High Fix 4: Fail-closed fallback converts script tags to escaped plain-text entities");
+    assert(!fallbackSanitized.includes("<script>"), "High Fix 4: Fail-closed fallback NEVER emits unescaped <script> tag");
+    testDom.window.DOMPurify = cachedPurify;
+
+  } catch (err) {
+    assert(false, `Test Suite 10 failed with error: ${err.message}\n${err.stack}`);
   }
 
   // Summary
