@@ -1942,7 +1942,9 @@ async function openCameraModal() {
   if (DOM.cameraReviewControls) DOM.cameraReviewControls.style.display = "none";
   state.capturedPhotoData = null;
 
+  if (typeof closeMobileSidebar === "function") closeMobileSidebar();
   DOM.cameraModal.classList.add("open");
+  if (typeof updateModalBodyScroll === "function") updateModalBodyScroll();
 
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     if (DOM.cameraErrorBanner) {
@@ -1973,6 +1975,7 @@ function closeCameraModal() {
   }
   if (DOM.cameraVideo) DOM.cameraVideo.srcObject = null;
   DOM.cameraModal.classList.remove("open");
+  if (typeof updateModalBodyScroll === "function") updateModalBodyScroll();
 }
 
 function captureCameraPhoto() {
@@ -2664,6 +2667,7 @@ function openPreviewModal(icon, title, bodyContent, itemToAttach = null) {
   }
 
   DOM.itemPreviewModal.classList.add("open");
+  if (typeof updateModalBodyScroll === "function") updateModalBodyScroll();
 }
 
 async function syncLibraryToPCFolder() {
@@ -2969,9 +2973,46 @@ function loadChat(chatId) {
 
   // If mobile, auto-close sidebar
   if (window.innerWidth <= 768) {
+    closeMobileSidebar();
+  }
+}
+
+function updateModalBodyScroll() {
+  const anyModalOpen = !!document.querySelector(".modal-backdrop.open");
+  if (document.body) {
+    document.body.classList.toggle("modal-open", anyModalOpen);
+  }
+}
+
+function closeMobileSidebar() {
+  if (DOM.sidebar) {
     DOM.sidebar.classList.remove("open");
-    const sidebarBackdrop = document.getElementById("sidebarBackdrop");
-    if (sidebarBackdrop) sidebarBackdrop.classList.remove("active");
+  }
+  const sidebarBackdrop = document.getElementById("sidebarBackdrop");
+  if (sidebarBackdrop) {
+    sidebarBackdrop.classList.remove("active");
+  }
+  if (document.body) {
+    document.body.classList.remove("sidebar-open");
+  }
+  if (DOM.menuToggleBtn) {
+    DOM.menuToggleBtn.setAttribute("aria-expanded", "false");
+  }
+}
+
+function openMobileSidebar() {
+  if (DOM.sidebar) {
+    DOM.sidebar.classList.add("open");
+  }
+  const sidebarBackdrop = document.getElementById("sidebarBackdrop");
+  if (sidebarBackdrop) {
+    sidebarBackdrop.classList.add("active");
+  }
+  if (document.body) {
+    document.body.classList.add("sidebar-open");
+  }
+  if (DOM.menuToggleBtn) {
+    DOM.menuToggleBtn.setAttribute("aria-expanded", "true");
   }
 }
 
@@ -3769,29 +3810,26 @@ function initEvents() {
   // Search chats
   DOM.searchChatsInput.addEventListener("input", renderConversationsSidebar);
 
-  // Sidebar toggle & backdrop (Instant appear / disappear)
+  // Sidebar toggle & backdrop (Instant appear / disappear with scroll locking)
   const sidebarBackdrop = document.getElementById("sidebarBackdrop");
   DOM.menuToggleBtn.addEventListener("click", () => {
     if (window.innerWidth <= 768) {
-      DOM.sidebar.classList.toggle("open");
-      if (sidebarBackdrop) {
-        sidebarBackdrop.classList.toggle("active", DOM.sidebar.classList.contains("open"));
+      if (DOM.sidebar.classList.contains("open")) {
+        closeMobileSidebar();
+      } else {
+        openMobileSidebar();
       }
     } else {
       DOM.sidebar.classList.toggle("hidden");
     }
   });
   DOM.closeSidebarBtn.addEventListener("click", () => {
-    DOM.sidebar.classList.remove("open");
+    closeMobileSidebar();
     DOM.sidebar.classList.add("hidden");
-    if (sidebarBackdrop) {
-      sidebarBackdrop.classList.remove("active");
-    }
   });
   if (sidebarBackdrop) {
     sidebarBackdrop.addEventListener("click", () => {
-      DOM.sidebar.classList.remove("open");
-      sidebarBackdrop.classList.remove("active");
+      closeMobileSidebar();
     });
   }
 
@@ -3809,16 +3847,20 @@ function initEvents() {
   DOM.modelPillBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     DOM.modelPillContainer.classList.toggle("open");
+    DOM.modelPillBtn.setAttribute("aria-expanded", DOM.modelPillContainer.classList.contains("open") ? "true" : "false");
   });
   DOM.inputModelChip.addEventListener("click", () => {
     DOM.modelPillContainer.classList.add("open");
+    DOM.modelPillBtn.setAttribute("aria-expanded", "true");
   });
   document.addEventListener("click", (e) => {
     if (!DOM.modelPillContainer.contains(e.target)) {
       DOM.modelPillContainer.classList.remove("open");
+      DOM.modelPillBtn.setAttribute("aria-expanded", "false");
     }
     if (!DOM.themeDropdownContainer.contains(e.target)) {
       DOM.themeDropdownContainer.classList.remove("open");
+      DOM.themePickerBtn.setAttribute("aria-expanded", "false");
     }
   });
 
@@ -3826,11 +3868,13 @@ function initEvents() {
   DOM.themePickerBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     DOM.themeDropdownContainer.classList.toggle("open");
+    DOM.themePickerBtn.setAttribute("aria-expanded", DOM.themeDropdownContainer.classList.contains("open") ? "true" : "false");
   });
   DOM.themeOpts.forEach(btn => {
     btn.addEventListener("click", () => {
       setTheme(btn.getAttribute("data-theme"));
       DOM.themeDropdownContainer.classList.remove("open");
+      DOM.themePickerBtn.setAttribute("aria-expanded", "false");
     });
   });
 
@@ -3843,19 +3887,61 @@ function initEvents() {
   });
 
   // Modals open/close
-  DOM.openSettingsBtn.addEventListener("click", openSettingsModal);
-  DOM.openEmbeddingsBtn.addEventListener("click", () => DOM.embeddingsModal.classList.add("open"));
+  DOM.openSettingsBtn.addEventListener("click", () => {
+    closeMobileSidebar();
+    openSettingsModal();
+    updateModalBodyScroll();
+  });
+  DOM.openEmbeddingsBtn.addEventListener("click", () => {
+    closeMobileSidebar();
+    DOM.embeddingsModal.classList.add("open");
+    updateModalBodyScroll();
+  });
   DOM.openCustomModelModal.addEventListener("click", () => {
+    closeMobileSidebar();
     DOM.modelPillContainer.classList.remove("open");
     DOM.embeddingsModal.classList.add("open");
+    updateModalBodyScroll();
   });
 
   document.querySelectorAll("[data-close]").forEach(btn => {
     btn.addEventListener("click", () => {
       const modalId = btn.getAttribute("data-close");
-      document.getElementById(modalId).classList.remove("open");
+      const modal = document.getElementById(modalId);
+      if (modal) {
+        if (modalId === "cameraModal" && typeof closeCameraModal === "function") {
+          closeCameraModal();
+        } else {
+          modal.classList.remove("open");
+        }
+      }
+      updateModalBodyScroll();
     });
   });
+
+  // Generic modal-backdrop click to close (when tapping outside modal dialog)
+  document.querySelectorAll(".modal-backdrop").forEach(backdrop => {
+    backdrop.addEventListener("click", (e) => {
+      if (e.target === backdrop) {
+        if (backdrop.id === "cameraModal" && typeof closeCameraModal === "function") {
+          closeCameraModal();
+        } else {
+          backdrop.classList.remove("open");
+        }
+        updateModalBodyScroll();
+      }
+    });
+  });
+
+  // MutationObserver to ensure body.modal-open stays strictly synchronized
+  if (typeof MutationObserver !== "undefined") {
+    const modalObserver = new MutationObserver(() => {
+      updateModalBodyScroll();
+    });
+    document.querySelectorAll(".modal-backdrop").forEach(el => {
+      modalObserver.observe(el, { attributes: true, attributeFilter: ["class"] });
+    });
+  }
 
   // Settings Save
   DOM.saveSettingsBtn.addEventListener("click", () => {
@@ -3997,8 +4083,27 @@ function initEvents() {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       closeAttachMenu();
-      if (state.cameraStream) {
-        closeCameraModal();
+      if (DOM.modelPillContainer) {
+        DOM.modelPillContainer.classList.remove("open");
+        if (DOM.modelPillBtn) DOM.modelPillBtn.setAttribute("aria-expanded", "false");
+      }
+      if (DOM.themeDropdownContainer) {
+        DOM.themeDropdownContainer.classList.remove("open");
+        if (DOM.themePickerBtn) DOM.themePickerBtn.setAttribute("aria-expanded", "false");
+      }
+
+      const openModals = document.querySelectorAll(".modal-backdrop.open");
+      if (openModals.length > 0) {
+        openModals.forEach(modal => {
+          if (modal.id === "cameraModal" && typeof closeCameraModal === "function") {
+            closeCameraModal();
+          } else {
+            modal.classList.remove("open");
+          }
+        });
+        updateModalBodyScroll();
+      } else {
+        closeMobileSidebar();
       }
     }
   });
@@ -4038,7 +4143,11 @@ function initEvents() {
     DOM.actionAddSkill.addEventListener("click", (e) => {
       e.stopPropagation();
       closeAttachMenu();
-      if (DOM.skillModal) DOM.skillModal.classList.add("open");
+      closeMobileSidebar();
+      if (DOM.skillModal) {
+        DOM.skillModal.classList.add("open");
+        updateModalBodyScroll();
+      }
     });
   }
 
@@ -4047,6 +4156,7 @@ function initEvents() {
     DOM.actionTakePhoto.addEventListener("click", (e) => {
       e.stopPropagation();
       closeAttachMenu();
+      closeMobileSidebar();
       openCameraModal();
     });
   }
@@ -4056,8 +4166,12 @@ function initEvents() {
     DOM.actionAddWebLink.addEventListener("click", (e) => {
       e.stopPropagation();
       closeAttachMenu();
+      closeMobileSidebar();
       if (DOM.webLinkStatusBox) DOM.webLinkStatusBox.style.display = "none";
-      if (DOM.webLinkModal) DOM.webLinkModal.classList.add("open");
+      if (DOM.webLinkModal) {
+        DOM.webLinkModal.classList.add("open");
+        updateModalBodyScroll();
+      }
     });
   }
 
@@ -4066,14 +4180,22 @@ function initEvents() {
     DOM.actionOpenLibrary.addEventListener("click", (e) => {
       e.stopPropagation();
       closeAttachMenu();
+      closeMobileSidebar();
       loadLibrary();
-      if (DOM.libraryModal) DOM.libraryModal.classList.add("open");
+      if (DOM.libraryModal) {
+        DOM.libraryModal.classList.add("open");
+        updateModalBodyScroll();
+      }
     });
   }
   if (DOM.openLibraryBtn) {
     DOM.openLibraryBtn.addEventListener("click", () => {
+      closeMobileSidebar();
       loadLibrary();
-      DOM.libraryModal.classList.add("open");
+      if (DOM.libraryModal) {
+        DOM.libraryModal.classList.add("open");
+        updateModalBodyScroll();
+      }
     });
   }
 
@@ -4200,6 +4322,7 @@ function initEvents() {
 }
 
 function openSettingsModal() {
+  if (typeof closeMobileSidebar === "function") closeMobileSidebar();
   DOM.apiKeyInput.value = state.apiKey;
   if (DOM.appTokenInput) DOM.appTokenInput.value = state.appToken || "";
   DOM.systemPromptInput.value = state.systemPrompt;
@@ -4207,6 +4330,7 @@ function openSettingsModal() {
   DOM.temperatureValue.textContent = state.temperature;
   updateStorageStatusUI();
   DOM.settingsModal.classList.add("open");
+  if (typeof updateModalBodyScroll === "function") updateModalBodyScroll();
 }
 
 function exportConversation() {

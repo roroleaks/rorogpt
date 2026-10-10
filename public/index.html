@@ -2,7 +2,7 @@
 <html lang="en" data-theme="clean-light">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>RoroGPT - Colorful Free AI Chat</title>
   <link rel="icon" type="image/jpeg" href="/logo.jpg">
 
@@ -127,7 +127,7 @@
       <!-- Top Navigation Bar -->
       <header class="topbar">
         <div class="topbar-left">
-          <button class="icon-btn menu-toggle-btn" id="menuToggleBtn" title="Toggle Sidebar">
+          <button class="icon-btn menu-toggle-btn" id="menuToggleBtn" title="Toggle Sidebar" aria-label="Toggle Navigation Sidebar" aria-expanded="false">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
           </button>
           
@@ -137,7 +137,7 @@
 
           <!-- Model Selector Pill (Interactive Dropdown) -->
           <div class="model-pill-container" id="modelPillContainer">
-            <button class="model-pill" id="modelPillBtn" title="Switch Model">
+            <button class="model-pill" id="modelPillBtn" title="Switch Model" aria-haspopup="listbox" aria-expanded="false" aria-label="Switch AI model">
               <span class="model-color-dot" id="activeModelDot"></span>
               <span class="model-name" id="activeModelName">Gemini 2.0 Flash</span>
               <span class="model-tag best-badge">⚡ Fastest</span>
@@ -165,7 +165,7 @@
         <div class="topbar-right">
           <!-- Theme Selector Dropdown -->
           <div class="theme-dropdown-container">
-            <button class="icon-btn theme-btn" id="themePickerBtn" title="Change Theme Palette">
+            <button class="icon-btn theme-btn" id="themePickerBtn" title="Change Theme Palette" aria-haspopup="true" aria-expanded="false" aria-label="Change Theme Palette">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a7 7 0 0 0 7 7c0 2-2 3-2 3s-1 1-1 3a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2c0-2-1-3-1-3s-2-1-2-3a7 7 0 0 0 7-7z"></path></svg>
             </button>
             <div class="theme-menu" id="themeMenu">
@@ -406,13 +406,13 @@
 
   <!-- Modal: Settings & API Key -->
   <div class="modal-backdrop" id="settingsModal">
-    <div class="modal-dialog">
+    <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
       <div class="modal-header">
         <div class="modal-title">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-          <span>RoroGPT Settings</span>
+          <span id="settingsModalTitle">RoroGPT Settings</span>
         </div>
-        <button class="icon-btn close-modal-btn" data-close="settingsModal">&times;</button>
+        <button class="icon-btn close-modal-btn" data-close="settingsModal" aria-label="Close settings dialog">&times;</button>
       </div>
 
       <div class="modal-body">
@@ -550,13 +550,13 @@
 
   <!-- Modal: Models & Embeddings Management -->
   <div class="modal-backdrop" id="embeddingsModal">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-lg" role="dialog" aria-modal="true" aria-labelledby="embeddingsModalTitle">
       <div class="modal-header">
         <div class="modal-title">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
-          <span>Models & Embeddings Studio</span>
+          <span id="embeddingsModalTitle">Models & Embeddings Studio</span>
         </div>
-        <button class="icon-btn close-modal-btn" data-close="embeddingsModal">&times;</button>
+        <button class="icon-btn close-modal-btn" data-close="embeddingsModal" aria-label="Close models dialog">&times;</button>
       </div>
 
       <div class="modal-body">
@@ -648,13 +648,13 @@
 
   <!-- Modal: Take a Photo (Live Camera) -->
   <div class="modal-backdrop" id="cameraModal">
-    <div class="modal-dialog modal-camera">
+    <div class="modal-dialog modal-camera" role="dialog" aria-modal="true" aria-labelledby="cameraModalTitle">
       <div class="modal-header">
         <div class="modal-title">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
-          <span>Take a Photo</span>
+          <span id="cameraModalTitle">Take a Photo</span>
         </div>
-        <button class="icon-btn close-modal-btn" data-close="cameraModal">&times;</button>
+        <button class="icon-btn close-modal-btn" data-close="cameraModal" aria-label="Close camera dialog">&times;</button>
       </div>
 
       <div class="modal-body">
@@ -686,13 +686,13 @@
 
   <!-- Modal: Add a Website Link -->
   <div class="modal-backdrop" id="webLinkModal">
-    <div class="modal-dialog">
+    <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="webLinkModalTitle">
       <div class="modal-header">
         <div class="modal-title">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
-          <span>Add a Website Link</span>
+          <span id="webLinkModalTitle">Add a Website Link</span>
         </div>
-        <button class="icon-btn close-modal-btn" data-close="webLinkModal">&times;</button>
+        <button class="icon-btn close-modal-btn" data-close="webLinkModal" aria-label="Close website link dialog">&times;</button>
       </div>
 
       <div class="modal-body">
@@ -722,13 +722,13 @@
 
   <!-- Modal: Add & Manage Skills -->
   <div class="modal-backdrop" id="skillModal">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-lg" role="dialog" aria-modal="true" aria-labelledby="skillModalTitle">
       <div class="modal-header">
         <div class="modal-title">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-          <span>AI Skills & Reusable Instructions</span>
+          <span id="skillModalTitle">AI Skills & Reusable Instructions</span>
         </div>
-        <button class="icon-btn close-modal-btn" data-close="skillModal">&times;</button>
+        <button class="icon-btn close-modal-btn" data-close="skillModal" aria-label="Close skills dialog">&times;</button>
       </div>
 
       <div class="modal-body">
@@ -784,13 +784,13 @@
 
   <!-- Modal: Personal Library -->
   <div class="modal-backdrop" id="libraryModal">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-lg" role="dialog" aria-modal="true" aria-labelledby="libraryModalTitle">
       <div class="modal-header">
         <div class="modal-title">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
-          <span>Personal Library (Local-First)</span>
+          <span id="libraryModalTitle">Personal Library (Local-First)</span>
         </div>
-        <button class="icon-btn close-modal-btn" data-close="libraryModal">&times;</button>
+        <button class="icon-btn close-modal-btn" data-close="libraryModal" aria-label="Close library dialog">&times;</button>
       </div>
 
       <div class="modal-body">
@@ -832,13 +832,13 @@
 
   <!-- Modal: Item Full Preview -->
   <div class="modal-backdrop" id="itemPreviewModal">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-lg" role="dialog" aria-modal="true" aria-labelledby="previewModalTitle">
       <div class="modal-header">
         <div class="modal-title">
           <span id="previewModalIcon">📄</span>
           <span id="previewModalTitle">Item Preview</span>
         </div>
-        <button class="icon-btn close-modal-btn" data-close="itemPreviewModal">&times;</button>
+        <button class="icon-btn close-modal-btn" data-close="itemPreviewModal" aria-label="Close preview dialog">&times;</button>
       </div>
       <div class="modal-body preview-body" id="previewModalBody"></div>
       <div class="modal-footer">

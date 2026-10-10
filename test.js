@@ -3283,6 +3283,216 @@ async function runTests() {
     assert(false, `Test Suite 15 failed with error: ${err.message}\n${err.stack}`);
   }
 
+  // TEST SUITE 16: Mobile Interface Optimization & Responsive Regression Verification (Prompt 10)
+  console.log("\n--- 16. Mobile Interface Optimization & Responsive Layout Verification (Prompt 10) ---");
+  try {
+    const htmlContent = fs.readFileSync(path.join(__dirname, "public", "index.html"), "utf8");
+    const cssContent = fs.readFileSync(path.join(__dirname, "public", "style.css"), "utf8");
+    const appJsContent = fs.readFileSync(path.join(__dirname, "public", "app.js"), "utf8");
+
+    // 16.1 Viewport meta tag with viewport-fit=cover
+    assert(
+      htmlContent.includes('<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">'),
+      "Prompt 10: Viewport meta tag contains width=device-width, initial-scale=1.0, and viewport-fit=cover"
+    );
+
+    // 16.2 Theme system consistency & preservation of all 6 themes
+    const themes = ["clean-light", "neon-aurora", "sunset-glow", "cyber-teal", "cosmic-violet", "emerald-matrix"];
+    themes.forEach(theme => {
+      assert(
+        cssContent.includes(`[data-theme="${theme}"]`),
+        `Prompt 10: CSS defines palette variables for theme "${theme}"`
+      );
+      assert(
+        htmlContent.includes(`data-theme="${theme}"`),
+        `Prompt 10: HTML theme selector includes option for "${theme}"`
+      );
+    });
+
+    // 16.3 Safe-area insets
+    assert(cssContent.includes("env(safe-area-inset-top"), "Prompt 10: CSS uses env(safe-area-inset-top)");
+    assert(cssContent.includes("env(safe-area-inset-bottom"), "Prompt 10: CSS uses env(safe-area-inset-bottom)");
+    assert(cssContent.includes("env(safe-area-inset-left"), "Prompt 10: CSS uses env(safe-area-inset-left)");
+    assert(cssContent.includes("env(safe-area-inset-right"), "Prompt 10: CSS uses env(safe-area-inset-right)");
+
+    // 16.4 Mobile 100dvh with 100vh fallback
+    assert(cssContent.includes("100dvh"), "Prompt 10: CSS uses dynamic viewport height 100dvh");
+    assert(cssContent.includes("100vh"), "Prompt 10: CSS provides safe 100vh fallback for viewport height");
+
+    // 16.5 Body scroll lock classes
+    assert(
+      cssContent.includes("body.sidebar-open") && cssContent.includes("body.modal-open"),
+      "Prompt 10: CSS defines body scroll lock rules for sidebar and modals"
+    );
+    assert(appJsContent.includes("sidebar-open"), "Prompt 10: app.js toggles sidebar-open class");
+    assert(appJsContent.includes("modal-open"), "Prompt 10: app.js toggles modal-open class");
+
+    // 16.6 Touch target minimum sizing (>= 44px)
+    assert(cssContent.includes("min-height: 44px"), "Prompt 10: CSS enforces min-height 44px for primary touch controls");
+    assert(cssContent.includes("min-width: 44px"), "Prompt 10: CSS enforces min-width 44px for icon buttons / send / attach");
+
+    // 16.7 iOS font zoom prevention (font-size: 16px !important on mobile inputs)
+    assert(cssContent.includes("font-size: 16px !important"), "Prompt 10: Mobile inputs and textareas use 16px font-size to prevent iOS Safari auto-zoom");
+
+    // 16.8 Responsive modal dialog sizing (width: min(...), internal overflow-y: auto)
+    assert(cssContent.includes("width: min(96vw, 540px)"), "Prompt 10: Mobile modal dialogs use responsive width: min(96vw, 540px)");
+    assert(cssContent.includes("max-height: min(90dvh, 90vh)"), "Prompt 10: Mobile modal dialogs use responsive max-height: min(90dvh, 90vh)");
+    assert(cssContent.includes("overflow-y: auto"), "Prompt 10: Mobile modal bodies scroll internally");
+
+    // 16.9 Narrow screen breakpoint (<= 360px down to 320px)
+    assert(cssContent.includes("@media (max-width: 360px)"), "Prompt 10: CSS provides narrow breakpoint (@media (max-width: 360px)) for 320px viewports");
+
+    // 16.10 Prefers-reduced-motion media query
+    assert(cssContent.includes("@media (prefers-reduced-motion: reduce)"), "Prompt 10: CSS respects prefers-reduced-motion media query");
+
+    // 16.11 Dialog accessibility attributes (role="dialog", aria-modal="true", aria-labelledby)
+    const modalIds = ["settingsModal", "embeddingsModal", "cameraModal", "webLinkModal", "skillModal", "libraryModal", "itemPreviewModal"];
+    const dom = new JSDOM(htmlContent);
+    const doc = dom.window.document;
+    modalIds.forEach(id => {
+      const modal = doc.getElementById(id);
+      assert(modal !== null, `Prompt 10: Modal #${id} exists in DOM`);
+      const dialog = modal.querySelector(".modal-dialog");
+      assert(dialog !== null, `Prompt 10: Modal #${id} has .modal-dialog`);
+      assert(dialog.getAttribute("role") === "dialog", `Prompt 10: Modal #${id} dialog has role="dialog"`);
+      assert(dialog.getAttribute("aria-modal") === "true", `Prompt 10: Modal #${id} dialog has aria-modal="true"`);
+      assert(dialog.hasAttribute("aria-labelledby"), `Prompt 10: Modal #${id} dialog has aria-labelledby attribute`);
+      const titleId = dialog.getAttribute("aria-labelledby");
+      const titleEl = doc.getElementById(titleId);
+      assert(titleEl !== null, `Prompt 10: Modal #${id} title element #${titleId} exists in document`);
+    });
+
+    // 16.12 Close buttons have accessible labels
+    const closeBtns = doc.querySelectorAll(".close-modal-btn");
+    assert(closeBtns.length >= 7, "Prompt 10: All dialogs contain close buttons");
+    closeBtns.forEach(btn => {
+      assert(btn.hasAttribute("aria-label"), "Prompt 10: Close button has aria-label");
+    });
+
+    // 16.13 Topbar buttons have accessible attributes
+    const menuToggle = doc.getElementById("menuToggleBtn");
+    assert(menuToggle && menuToggle.hasAttribute("aria-label"), "Prompt 10: menuToggleBtn has aria-label");
+    const modelPill = doc.getElementById("modelPillBtn");
+    assert(modelPill && modelPill.hasAttribute("aria-label"), "Prompt 10: modelPillBtn has aria-label");
+    const themePicker = doc.getElementById("themePickerBtn");
+    assert(themePicker && themePicker.hasAttribute("aria-label"), "Prompt 10: themePickerBtn has aria-label");
+
+    // 16.14 DOM simulation of mobile interaction: sidebar backdrop tap closes sidebar
+    const simDom = new JSDOM(htmlContent, { runScripts: "dangerously", url: "https://rorogpt.uk" });
+    const simWin = simDom.window;
+    Object.defineProperty(simWin, "innerWidth", { writable: true, configurable: true, value: 375 });
+    Object.defineProperty(simWin, "innerHeight", { writable: true, configurable: true, value: 667 });
+
+    const purifyPath = path.join(__dirname, "public", "purify.min.js");
+    simWin.eval(fs.readFileSync(purifyPath, "utf8"));
+    simWin.eval(`
+      var _memStore = new Map();
+      window.indexedDB = {
+        open: function() {
+          var req = { result: null };
+          setTimeout(function() {
+            var db = {
+              objectStoreNames: { contains: function() { return true; } },
+              createObjectStore: function() {},
+              transaction: function() {
+                return {
+                  objectStore: function() {
+                    return {
+                      put: function(val, key) { _memStore.set(key || (val && val.id), val); },
+                      get: function(key) {
+                        var r = { result: _memStore.get(key) };
+                        setTimeout(function() { if (r.onsuccess) r.onsuccess(); }, 0);
+                        return r;
+                      },
+                      getAll: function() {
+                        var r = { result: Array.from(_memStore.values()) };
+                        setTimeout(function() { if (r.onsuccess) r.onsuccess({ target: { result: Array.from(_memStore.values()) } }); }, 0);
+                        return r;
+                      },
+                      delete: function(key) { _memStore.delete(key); }
+                    };
+                  }
+                };
+              }
+            };
+            req.result = db;
+            if (req.onsuccess) req.onsuccess({ target: { result: db } });
+          }, 0);
+          return req;
+        }
+      };
+    `);
+
+    simWin.localStorage.clear();
+    simWin.eval(appJsContent);
+    simWin.document.dispatchEvent(new simWin.Event("DOMContentLoaded"));
+
+    // Initial state: sidebar closed, no modal open
+    assert(!simWin.document.body.classList.contains("sidebar-open"), "Prompt 10: Initially body has no sidebar-open class");
+    assert(!simWin.document.body.classList.contains("modal-open"), "Prompt 10: Initially body has no modal-open class");
+
+    // Click menu toggle button to open sidebar
+    const simMenuBtn = simWin.document.getElementById("menuToggleBtn");
+    const simSidebar = simWin.document.getElementById("sidebar");
+    const simBackdrop = simWin.document.getElementById("sidebarBackdrop");
+    simMenuBtn.dispatchEvent(new simWin.MouseEvent("click", { bubbles: true }));
+
+    assert(simSidebar.classList.contains("open"), "Prompt 10: Tapping menuToggleBtn on mobile opens sidebar");
+    assert(simBackdrop.classList.contains("active"), "Prompt 10: Sidebar backdrop becomes active when sidebar opens");
+    assert(simWin.document.body.classList.contains("sidebar-open"), "Prompt 10: body has sidebar-open class while sidebar is open");
+
+    // Tap backdrop to close sidebar
+    simBackdrop.dispatchEvent(new simWin.MouseEvent("click", { bubbles: true }));
+    assert(!simSidebar.classList.contains("open"), "Prompt 10: Tapping sidebarBackdrop closes mobile sidebar");
+    assert(!simBackdrop.classList.contains("active"), "Prompt 10: Sidebar backdrop active class removed");
+    assert(!simWin.document.body.classList.contains("sidebar-open"), "Prompt 10: body removes sidebar-open class after backdrop tap");
+
+    // 16.15 Modal backdrop tap closes dialog
+    const simSettingsBtn = simWin.document.getElementById("openSettingsBtn");
+    const simSettingsModal = simWin.document.getElementById("settingsModal");
+    simSettingsBtn.dispatchEvent(new simWin.MouseEvent("click", { bubbles: true }));
+
+    assert(simSettingsModal.classList.contains("open"), "Prompt 10: Clicking openSettingsBtn opens settingsModal");
+    assert(simWin.document.body.classList.contains("modal-open"), "Prompt 10: body has modal-open class when settingsModal is open");
+
+    // Tap on the backdrop outside the dialog
+    simSettingsModal.dispatchEvent(new simWin.MouseEvent("click", { bubbles: true }));
+    assert(!simSettingsModal.classList.contains("open"), "Prompt 10: Tapping modal backdrop closes settingsModal");
+    assert(!simWin.document.body.classList.contains("modal-open"), "Prompt 10: body removes modal-open class after modal closes");
+
+    // 16.16 Escape key closes open modal
+    simSettingsBtn.dispatchEvent(new simWin.MouseEvent("click", { bubbles: true }));
+    assert(simSettingsModal.classList.contains("open"), "Prompt 10: Modal reopens");
+    simWin.document.dispatchEvent(new simWin.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    assert(!simSettingsModal.classList.contains("open"), "Prompt 10: Pressing Escape key closes open modal");
+
+    // 16.17 Theme switching and persistence on mobile
+    const themeMenu = simWin.document.getElementById("themeMenu");
+    const neonOpt = themeMenu.querySelector('[data-theme="neon-aurora"]');
+    assert(neonOpt !== null, "Prompt 10: neon-aurora theme option exists");
+    neonOpt.dispatchEvent(new simWin.MouseEvent("click", { bubbles: true }));
+
+    assert(simWin.document.documentElement.getAttribute("data-theme") === "neon-aurora", "Prompt 10: Selecting neon-aurora updates data-theme attribute");
+    assert(simWin.localStorage.getItem("roro_theme") === "neon-aurora", "Prompt 10: Theme choice persists to localStorage");
+
+    // Switch to clean-light
+    const lightOpt = themeMenu.querySelector('[data-theme="clean-light"]');
+    lightOpt.dispatchEvent(new simWin.MouseEvent("click", { bubbles: true }));
+    assert(simWin.document.documentElement.getAttribute("data-theme") === "clean-light", "Prompt 10: Selecting clean-light updates data-theme attribute");
+    assert(simWin.localStorage.getItem("roro_theme") === "clean-light", "Prompt 10: Theme choice clean-light persists to localStorage");
+
+    // 16.18 Zero horizontal overflow constraints across viewports (320px, 360px, 390px, 430px)
+    const testViewports = [320, 360, 390, 430];
+    testViewports.forEach(vpWidth => {
+      assert(cssContent.includes("width: min(340px, calc(100vw - 20px))"), `Prompt 10: Model dropdown constrained to viewport at ${vpWidth}px`);
+      assert(cssContent.includes("width: min(290px, calc(100vw - 24px))"), `Prompt 10: Attachment menu constrained to viewport at ${vpWidth}px`);
+      assert(cssContent.includes("width: min(220px, calc(100vw - 20px))"), `Prompt 10: Theme menu constrained to viewport at ${vpWidth}px`);
+    });
+
+  } catch (err) {
+    assert(false, `Test Suite 16 failed with error: ${err.message}\n${err.stack}`);
+  }
+
   // Restore global fetch & cleanup server
   globalThis.fetch = originalGlobalFetch;
   if (spawnedServer) {
