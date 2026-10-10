@@ -117,6 +117,12 @@ All responses automatically include:
 - `Permissions-Policy: camera=(self), microphone=(self), geolocation=(), interest-cohort=()`
 - `X-Frame-Options: SAMEORIGIN`
 
+### 5. Incremental Streaming URL Retrieval Guard (`/api/fetch-url`)
+- **Pre-check `Content-Length`**: Rejects responses advertising sizes > 1.5 MB immediately with HTTP 413 before reading the body.
+- **Incremental Streaming Byte Limit**: Reads stream chunks using `Uint8Array.byteLength`. If the running byte total exceeds 1.5 MB (1,572,864 bytes), stream consumption is halted, the reader cancelled, and HTTP 413 returned.
+- **Identity Encoding**: Requests `Accept-Encoding: identity` so the byte limit applies directly without compression expansion or decompression bomb risks.
+- **Leak-Free Timer Cleanup**: Guarantees request timeout timers are always cleared in a `finally` block.
+
 ---
 
 ## 🧪 Testing

@@ -1,5 +1,6 @@
 // Automated Test Suite for RoroGPT (Strict Free & Fast Models Verification + Security Boundary)
 import fs from "node:fs";
+import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -387,11 +388,193 @@ async function runTests() {
     assert(false, `Security Access Boundary tests failed: ${err.message}`);
   } finally {
     // Restore original environment
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) {
+        delete process.env[key];
+      }
+    }
     Object.assign(process.env, originalEnv);
-    if (!originalEnv.APP_API_TOKEN) delete process.env.APP_API_TOKEN;
-    if (!originalEnv.ALLOWED_ORIGINS) delete process.env.ALLOWED_ORIGINS;
-    if (!originalEnv.RATE_LIMIT_MAX_FETCH) delete process.env.RATE_LIMIT_MAX_FETCH;
+  }
 
+  // TEST SUITE 8: URL Fetch Streaming Response Size & Timeout Guards (High Fix 2)
+  console.log("\n--- 8. URL Fetch Streaming Response Size & Timeout Guards ---");
+  let mockServer = null;
+  let mockPort = 0;
+
+  try {
+    process.env.NODE_ENV = "development";
+    delete process.env.APP_API_TOKEN;
+    delete process.env.ALLOWED_ORIGINS;
+
+    mockServer = http.createServer((req, res) => {
+      res.on("error", () => {});
+      const url = new URL(req.url, `http://${req.headers.host}`);
+
+      if (url.pathname === "/small") {
+        const body = "<html><head><title>Small Page</title></head><body><h1>Small Article</h1><p>Processed content below limit.</p></body></html>";
+        res.writeHead(200, {
+          "Content-Type": "text/html; charset=utf-8",
+          "Content-Length": Buffer.byteLength(body)
+        });
+        res.end(body);
+      } else if (url.pathname === "/exact") {
+        // Exactly 1,572,864 bytes (1.5 MB)
+        const prefix = Buffer.from("<html><head><title>Exact Page</title></head><body><p>");
+        const suffix = Buffer.from("</p></body></html>");
+        const padLen = 1572864 - prefix.length - suffix.length;
+        const pad = Buffer.alloc(padLen, 97); // 'a'
+        const exactBuf = Buffer.concat([prefix, pad, suffix]);
+        res.writeHead(200, {
+          "Content-Type": "text/html; charset=utf-8",
+          "Content-Length": exactBuf.length
+        });
+        res.end(exactBuf);
+      } else if (url.pathname === "/oversized-header") {
+        // Content-Length header exceeds 1.5 MB limit
+        res.writeHead(200, {
+          "Content-Type": "text/html",
+          "Content-Length": "2000000"
+        });
+        res.end("Oversized content");
+      } else if (url.pathname === "/chunked-oversized") {
+        // Chunked transfer with no Content-Length that exceeds 1.5 MB
+        res.writeHead(200, {
+          "Content-Type": "text/html"
+        });
+        const chunk = Buffer.alloc(64 * 1024, 98); // 64 KB
+        // Write 26 chunks = ~1.66 MB (> 1.5 MB limit)
+        for (let i = 0; i < 26; i++) {
+          if (res.destroyed || res.writableEnded) break;
+          res.write(chunk);
+        }
+        if (!res.destroyed && !res.writableEnded) {
+          res.end();
+        }
+      } else if (url.pathname === "/multibyte-oversized") {
+        // 600,000 3-byte unicode characters ('世' = 3 bytes in UTF-8)
+        // String length is 600,000 (< 1.5M chars), but byte length is 1,800,000 (> 1.5 MB limit)
+        res.writeHead(200, {
+          "Content-Type": "text/html; charset=utf-8"
+        });
+        const chunk = Buffer.from("世".repeat(20000)); // 60,000 bytes per chunk
+        // 30 chunks = 1,800,000 bytes
+        for (let i = 0; i < 30; i++) {
+          if (res.destroyed || res.writableEnded) break;
+          res.write(chunk);
+        }
+        if (!res.destroyed && !res.writableEnded) {
+          res.end();
+        }
+      } else if (url.pathname === "/slow-hanging") {
+        // Headers sent, but body intentionally hangs to test timeout
+        res.writeHead(200, {
+          "Content-Type": "text/html"
+        });
+        // Intentionally do not call res.end()
+      } else {
+        res.writeHead(404, { "Content-Type": "text/plain" });
+        res.end("Not Found");
+      }
+    });
+
+    await new Promise((resolve) => {
+      mockServer.listen(0, "127.0.0.1", () => {
+        mockPort = mockServer.address().port;
+        resolve();
+      });
+    });
+
+    // Enable loopback strictly for mock server testing
+    process.env.ALLOW_LOOPBACK_FOR_TESTS = "true";
+
+    // 8.1 Small body below limit succeeds with extracted content
+    const smallRes = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "192.0.2.101" },
+      body: JSON.stringify({ url: `http://127.0.0.1:${mockPort}/small` })
+    });
+    assert(smallRes.status === 200, "Streaming size limit: Small response well below limit returns HTTP 200");
+    const smallJson = await smallRes.json();
+    assert(smallJson.title === "Small Page" && smallJson.content.includes("Processed content"), "Streaming size limit: Small response content is successfully parsed");
+
+    // 8.2 Exactly at byte limit (1,572,864 bytes) succeeds
+    const exactRes = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "192.0.2.102" },
+      body: JSON.stringify({ url: `http://127.0.0.1:${mockPort}/exact` })
+    });
+    assert(exactRes.status === 200, "Streaming size limit: Response exactly at 1.5 MB limit (1,572,864 bytes) succeeds (HTTP 200)");
+    const exactJson = await exactRes.json();
+    assert(exactJson.success === true && exactJson.charCount > 0, "Streaming size limit: Exact limit response body is extracted");
+
+    // 8.3 Content-Length header exceeding limit rejected before reading body
+    const headerOversizedRes = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "192.0.2.103" },
+      body: JSON.stringify({ url: `http://127.0.0.1:${mockPort}/oversized-header` })
+    });
+    assert(headerOversizedRes.status === 413, "Streaming size limit: Content-Length > 1.5 MB rejected before reading body (HTTP 413)");
+    const headerJson = await headerOversizedRes.json();
+    assert(headerJson.error?.includes("maximum allowed size of 1.5 MB"), "Streaming size limit: Returns clear 413 error on oversized Content-Length");
+
+    // 8.4 Chunked response without Content-Length exceeding limit is rejected while streaming
+    const chunkedOversizedRes = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "192.0.2.104" },
+      body: JSON.stringify({ url: `http://127.0.0.1:${mockPort}/chunked-oversized` })
+    });
+    assert(chunkedOversizedRes.status === 413, "Streaming size limit: Chunked response exceeding 1.5 MB stopped immediately while streaming (HTTP 413)");
+    const chunkedJson = await chunkedOversizedRes.json();
+    assert(chunkedJson.error?.includes("streaming"), "Streaming size limit: Returns 413 error indicating stream threshold crossed");
+
+    // 8.5 Multibyte UTF-8 characters rejected based on byte count rather than character count
+    const multibyteRes = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "192.0.2.105" },
+      body: JSON.stringify({ url: `http://127.0.0.1:${mockPort}/multibyte-oversized` })
+    });
+    assert(multibyteRes.status === 413, "Streaming size limit: Multibyte UTF-8 exceeding byte limit is rejected based on bytes, not characters (HTTP 413)");
+
+    // 8.6 Timeout trips and cleans up timer
+    process.env.FETCH_TIMEOUT_MS = "200";
+    const timeoutRes = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "192.0.2.106" },
+      body: JSON.stringify({ url: `http://127.0.0.1:${mockPort}/slow-hanging` })
+    });
+    assert(timeoutRes.status === 504, "Streaming size limit: Hanging response trips timeout cleanly (HTTP 504 Gateway Timeout)");
+    delete process.env.FETCH_TIMEOUT_MS;
+
+    // 8.7 Subsequent request succeeds (no hung state, leaked handles, or corrupted streams)
+    const healthyRes = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "192.0.2.107" },
+      body: JSON.stringify({ url: `http://127.0.0.1:${mockPort}/small` })
+    });
+    assert(healthyRes.status === 200, "Streaming size limit: Subsequent request succeeds after aborted/oversized requests (HTTP 200)");
+
+    // 8.8 SSRF protection: loopback blocked when test flag is absent
+    delete process.env.ALLOW_LOOPBACK_FOR_TESTS;
+    const ssrfRes = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "192.0.2.108" },
+      body: JSON.stringify({ url: `http://127.0.0.1:${mockPort}/small` })
+    });
+    assert(ssrfRes.status === 403, "Streaming size limit: SSRF safeguard rejects loopback addresses by default (HTTP 403)");
+    const ssrfJson = await ssrfRes.json();
+    assert(ssrfJson.isSSRFBlocked === true, "Streaming size limit: SSRF blocked flag confirmed");
+
+  } catch (err) {
+    assert(false, `URL Fetch Streaming tests failed: ${err.message}`);
+  } finally {
+    delete process.env.ALLOW_LOOPBACK_FOR_TESTS;
+    delete process.env.FETCH_TIMEOUT_MS;
+    if (mockServer) {
+      if (typeof mockServer.closeAllConnections === "function") {
+        mockServer.closeAllConnections();
+      }
+      await new Promise((resolve) => mockServer.close(resolve));
+    }
     if (spawnedServer) {
       spawnedServer.close();
     }

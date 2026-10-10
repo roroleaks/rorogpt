@@ -3,8 +3,8 @@ import dns from "node:dns/promises";
 import net from "node:net";
 import { handleCors, checkAuth, enforceRateLimit } from "./_security.js";
 
-const MAX_BODY_BYTES = 1.5 * 1024 * 1024; // 1.5 MB max response size
-const FETCH_TIMEOUT_MS = 8000; // 8 seconds timeout
+export const MAX_BODY_BYTES = 1.5 * 1024 * 1024; // 1.5 MB max response size (1,572,864 bytes)
+export const FETCH_TIMEOUT_MS = 8000; // 8 seconds timeout
 
 /**
  * Checks whether an IP address is private, loopback, link-local, or reserved.
@@ -68,6 +68,14 @@ function isPrivateOrReservedIP(ip) {
  */
 async function validateHostname(hostname) {
   const lower = (hostname || "").toLowerCase().trim();
+
+  // Allow loopback strictly when running automated mock-server tests
+  if (process.env.ALLOW_LOOPBACK_FOR_TESTS === "true") {
+    if (lower === "127.0.0.1" || lower === "localhost") {
+      return ["127.0.0.1"];
+    }
+  }
+
   if (
     lower === "localhost" ||
     lower.endsWith(".localhost") ||
@@ -235,9 +243,10 @@ export default async function handler(req, res) {
     });
   }
 
-  // Fetch with timeout and size limit
+  // Fetch with timeout and streaming size limit
+  const timeoutMs = parseInt(process.env.FETCH_TIMEOUT_MS || `${FETCH_TIMEOUT_MS}`, 10);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const upstream = await fetch(parsedUrl.toString(), {
@@ -245,19 +254,22 @@ export default async function handler(req, res) {
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 RoroGPT/1.0",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.7",
-        "Accept-Language": "en-US,en;q=0.9,ar;q=0.8"
+        "Accept-Language": "en-US,en;q=0.9,ar;q=0.8",
+        // Enforce identity encoding so byte limits apply directly without decompression expansion
+        "Accept-Encoding": "identity"
       },
       redirect: "follow",
       signal: controller.signal
     });
-
-    clearTimeout(timer);
 
     // Re-validate final URL in case of redirects
     const finalUrl = new URL(upstream.url);
     await validateHostname(finalUrl.hostname);
 
     if (!upstream.ok) {
+      if (upstream.body) {
+        try { await upstream.body.cancel(); } catch {}
+      }
       return res.status(upstream.status).json({
         error: `Website returned HTTP error ${upstream.status} (${upstream.statusText || "Error"}).`,
         status: upstream.status
@@ -274,16 +286,84 @@ export default async function handler(req, res) {
       contentType.includes("application/xml");
 
     if (!isTextOrHtml && !contentType.includes("text/")) {
+      if (upstream.body) {
+        try { await upstream.body.cancel(); } catch {}
+      }
       return res.status(415).json({
         error: `Unsupported content type '${contentType}'. Only web pages, articles, and text documents can be retrieved.`
       });
     }
 
-    const rawText = await upstream.text();
-    if (rawText.length > MAX_BODY_BYTES) {
+    // 1. Validate Content-Length before reading body
+    const contentLengthHeader = upstream.headers.get("content-length");
+    if (contentLengthHeader) {
+      const contentLength = parseInt(contentLengthHeader, 10);
+      if (!Number.isNaN(contentLength) && contentLength > MAX_BODY_BYTES) {
+        if (upstream.body) {
+          try { await upstream.body.cancel(); } catch {}
+        }
+        return res.status(413).json({
+          error: `Response exceeds the maximum allowed size of 1.5 MB (Content-Length: ${(contentLength / 1024 / 1024).toFixed(2)} MB).`
+        });
+      }
+    }
+
+    // 2. Read response body incrementally while tracking raw byteLength
+    if (!upstream.body) {
+      return res.status(400).json({ error: "Upstream response body is empty." });
+    }
+
+    const reader = upstream.body.getReader();
+    const chunks = [];
+    let totalBytes = 0;
+    let isOversized = false;
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        if (value) {
+          totalBytes += value.byteLength;
+          if (totalBytes > MAX_BODY_BYTES) {
+            isOversized = true;
+            try { await reader.cancel(); } catch {}
+            break;
+          }
+          chunks.push(value);
+        }
+      }
+    } catch (readErr) {
+      throw readErr;
+    }
+
+    if (isOversized) {
       return res.status(413).json({
-        error: `Web page is too large (${(rawText.length / 1024 / 1024).toFixed(2)} MB). Maximum allowed size is 1.5 MB.`
+        error: "Response exceeded the maximum allowed size of 1.5 MB while streaming."
       });
+    }
+
+    // 3. Decode only after size validation passes
+    const mergedBuffer = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      mergedBuffer.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+
+    let charset = "utf-8";
+    const charsetMatch = contentType.match(/charset=([^\s;]+)/i);
+    if (charsetMatch && charsetMatch[1]) {
+      charset = charsetMatch[1].replace(/["']/g, "").trim().toLowerCase();
+    }
+
+    let rawText = "";
+    try {
+      const decoder = new TextDecoder(charset);
+      rawText = decoder.decode(mergedBuffer);
+    } catch {
+      const fallbackDecoder = new TextDecoder("utf-8");
+      rawText = fallbackDecoder.decode(mergedBuffer);
     }
 
     const extracted = extractReadableTextFromHTML(rawText);
@@ -300,10 +380,11 @@ export default async function handler(req, res) {
       instruction: instruction.trim()
     });
   } catch (err) {
-    clearTimeout(timer);
-    if (err.name === "AbortError") {
-      return res.status(504).json({ error: "Website request timed out after 8 seconds." });
+    if (err.name === "AbortError" || controller.signal.aborted) {
+      return res.status(504).json({ error: `Website request timed out after ${Math.max(1, Math.round(timeoutMs / 1000))} seconds.` });
     }
     return res.status(500).json({ error: `Failed to retrieve website: ${err.message}` });
+  } finally {
+    clearTimeout(timer);
   }
 }
