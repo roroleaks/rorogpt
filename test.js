@@ -575,6 +575,342 @@ async function runTests() {
       }
       await new Promise((resolve) => mockServer.close(resolve));
     }
+  }
+
+  // TEST SUITE 9: Redirect & DNS-Rebinding SSRF Hardening (High Fix 3)
+  console.log("\n--- 9. Redirect & DNS-Rebinding SSRF Hardening (High Fix 3) ---");
+  let redirectMockServer = null;
+  let rPort = 0;
+  let privateCanaryHits = 0;
+
+  try {
+    process.env.NODE_ENV = "development";
+    delete process.env.APP_API_TOKEN;
+    delete process.env.ALLOWED_ORIGINS;
+
+    redirectMockServer = http.createServer((req, res) => {
+      res.on("error", () => {});
+      const url = new URL(req.url, `http://${req.headers.host}`);
+
+      if (url.pathname === "/canary-private") {
+        privateCanaryHits++;
+        res.writeHead(200, { "Content-Type": "text/html" });
+        return res.end("CONFIDENTIAL_INTERNAL_DATA");
+      }
+
+      if (url.pathname === "/public-ok") {
+        res.writeHead(200, { "Content-Type": "text/html" });
+        return res.end("<html><head><title>Public Page</title></head><body><h1>Direct Public Content</h1></body></html>");
+      }
+
+      if (url.pathname === "/redirect-to-127") {
+        res.writeHead(302, { Location: `http://127.0.0.1:${rPort}/canary-private` });
+        return res.end();
+      }
+
+      if (url.pathname === "/redirect-to-localhost") {
+        res.writeHead(302, { Location: `http://localhost:${rPort}/canary-private` });
+        return res.end();
+      }
+
+      if (url.pathname === "/redirect-to-metadata") {
+        res.writeHead(302, { Location: "http://169.254.169.254/latest/meta-data/" });
+        return res.end();
+      }
+
+      if (url.pathname === "/redirect-to-private-ip-10") {
+        res.writeHead(302, { Location: "http://10.0.0.1/admin" });
+        return res.end();
+      }
+
+      if (url.pathname === "/redirect-to-private-ip-172") {
+        res.writeHead(302, { Location: "http://172.16.0.1/internal" });
+        return res.end();
+      }
+
+      if (url.pathname === "/redirect-to-private-ip-192") {
+        res.writeHead(302, { Location: "http://192.168.1.1/router" });
+        return res.end();
+      }
+
+      if (url.pathname === "/redirect-to-ipv6-loopback") {
+        res.writeHead(302, { Location: "http://[::1]/internal" });
+        return res.end();
+      }
+
+      if (url.pathname === "/redirect-to-ipv4-mapped") {
+        res.writeHead(302, { Location: "http://[::ffff:127.0.0.1]/internal" });
+        return res.end();
+      }
+
+      if (url.pathname === "/redirect-relative") {
+        res.writeHead(302, { Location: "/relative-target" });
+        return res.end();
+      }
+
+      if (url.pathname === "/relative-target") {
+        res.writeHead(200, { "Content-Type": "text/html" });
+        return res.end("<html><body><h1>Relative Target Reached</h1></body></html>");
+      }
+
+      // Chain of 3 hops (within 5 limit)
+      if (url.pathname === "/chain-hop-1") {
+        res.writeHead(302, { Location: "/chain-hop-2" });
+        return res.end();
+      }
+      if (url.pathname === "/chain-hop-2") {
+        res.writeHead(302, { Location: "/chain-hop-3" });
+        return res.end();
+      }
+      if (url.pathname === "/chain-hop-3") {
+        res.writeHead(200, { "Content-Type": "text/html" });
+        return res.end("<html><body><h1>Chain 3 Final Content</h1></body></html>");
+      }
+
+      // Chain of 6 hops (exceeds 5 limit)
+      if (url.pathname === "/too-many-start") {
+        res.writeHead(302, { Location: "/too-many-1" });
+        return res.end();
+      }
+      if (url.pathname.startsWith("/too-many-")) {
+        const step = parseInt(url.pathname.replace("/too-many-", ""), 10);
+        res.writeHead(302, { Location: `/too-many-${step + 1}` });
+        return res.end();
+      }
+
+      // Redirect loop
+      if (url.pathname === "/loop-a") {
+        res.writeHead(302, { Location: "/loop-b" });
+        return res.end();
+      }
+      if (url.pathname === "/loop-b") {
+        res.writeHead(302, { Location: "/loop-a" });
+        return res.end();
+      }
+
+      // Redirect to file protocol
+      if (url.pathname === "/redirect-to-file") {
+        res.writeHead(302, { Location: "file:///etc/passwd" });
+        return res.end();
+      }
+
+      // Redirect to oversized response
+      if (url.pathname === "/redirect-to-oversized") {
+        res.writeHead(302, { Location: "/oversized-page" });
+        return res.end();
+      }
+      if (url.pathname === "/oversized-page") {
+        res.writeHead(200, { "Content-Type": "text/html", "Content-Length": "2000000" });
+        return res.end("Oversized content");
+      }
+
+      // Redirect to hanging response
+      if (url.pathname === "/redirect-to-hanging") {
+        res.writeHead(302, { Location: "/hanging-page" });
+        return res.end();
+      }
+      if (url.pathname === "/hanging-page") {
+        res.writeHead(200, { "Content-Type": "text/html" });
+        // Never ends to trip timeout
+        return;
+      }
+
+      // DNS rebind target
+      if (url.pathname === "/dns-rebind-page") {
+        res.writeHead(200, { "Content-Type": "text/html" });
+        return res.end("<h1>Rebind Page</h1>");
+      }
+
+      res.writeHead(404, { "Content-Type": "text/plain" });
+      res.end("Not Found");
+    });
+
+    await new Promise((resolve) => {
+      redirectMockServer.listen(0, "127.0.0.1", () => {
+        rPort = redirectMockServer.address().port;
+        resolve();
+      });
+    });
+
+    // Enable test loopback for the mock server
+    process.env.ALLOW_LOOPBACK_FOR_TESTS = "true";
+
+    // 9.1 Public URL with no redirect succeeds
+    const pubRes = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "192.0.2.110" },
+      body: JSON.stringify({ url: `http://127.0.0.1:${rPort}/public-ok` })
+    });
+    assert(pubRes.status === 200, "Redirect hardening: Public URL with no redirect succeeds (HTTP 200)");
+    const pubJson = await pubRes.json();
+    assert(pubJson.content.includes("Direct Public Content"), "Redirect hardening: Extracted content from direct URL matches");
+
+    // 9.2 Redirect to 127.0.0.1 is blocked before second request
+    privateCanaryHits = 0;
+    process.env.BLOCK_LOOPBACK_REDIRECTS = "true";
+    const redir127Res = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "192.0.2.111" },
+      body: JSON.stringify({ url: `http://127.0.0.1:${rPort}/redirect-to-127` })
+    });
+    assert(redir127Res.status === 403, "Redirect hardening: Redirect to 127.0.0.1 is blocked (HTTP 403)");
+    const redir127Json = await redir127Res.json();
+    assert(redir127Json.isSSRFBlocked === true, "Redirect hardening: isSSRFBlocked confirmed for 127.0.0.1 redirect");
+    assert(privateCanaryHits === 0, "Redirect hardening: Canary proves private 127.0.0.1 was NEVER requested");
+    delete process.env.BLOCK_LOOPBACK_REDIRECTS;
+
+    // 9.3 Redirect to localhost is blocked
+    privateCanaryHits = 0;
+    const redirLocalRes = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "192.0.2.112" },
+      body: JSON.stringify({ url: `http://127.0.0.1:${rPort}/redirect-to-localhost` })
+    });
+    assert(redirLocalRes.status === 403, "Redirect hardening: Redirect to localhost is blocked (HTTP 403)");
+    const redirLocalJson = await redirLocalRes.json();
+    assert(redirLocalJson.isSSRFBlocked === true, "Redirect hardening: isSSRFBlocked confirmed for localhost redirect");
+    assert(privateCanaryHits === 0, "Redirect hardening: Canary proves localhost was NEVER requested");
+
+    // 9.4 Redirect to cloud metadata (169.254.169.254) is blocked
+    const redirMetaRes = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "192.0.2.113" },
+      body: JSON.stringify({ url: `http://127.0.0.1:${rPort}/redirect-to-metadata` })
+    });
+    assert(redirMetaRes.status === 403, "Redirect hardening: Redirect to 169.254.169.254 is blocked (HTTP 403)");
+    const redirMetaJson = await redirMetaRes.json();
+    assert(redirMetaJson.isSSRFBlocked === true, "Redirect hardening: isSSRFBlocked confirmed for metadata redirect");
+
+    // 9.5 Redirect to private IPv4 addresses (10.0.0.1, 172.16.0.1, 192.168.1.1) are blocked
+    const redir10Res = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "192.0.2.114" },
+      body: JSON.stringify({ url: `http://127.0.0.1:${rPort}/redirect-to-private-ip-10` })
+    });
+    assert(redir10Res.status === 403, "Redirect hardening: Redirect to 10.0.0.1 is blocked (HTTP 403)");
+
+    const redir172Res = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "192.0.2.115" },
+      body: JSON.stringify({ url: `http://127.0.0.1:${rPort}/redirect-to-private-ip-172` })
+    });
+    assert(redir172Res.status === 403, "Redirect hardening: Redirect to 172.16.0.1 is blocked (HTTP 403)");
+
+    const redir192Res = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "192.0.2.116" },
+      body: JSON.stringify({ url: `http://127.0.0.1:${rPort}/redirect-to-private-ip-192` })
+    });
+    assert(redir192Res.status === 403, "Redirect hardening: Redirect to 192.168.1.1 is blocked (HTTP 403)");
+
+    // 9.6 Redirect to private IPv6 and IPv4-mapped IPv6 are blocked
+    const redirIpv6Res = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "192.0.2.117" },
+      body: JSON.stringify({ url: `http://127.0.0.1:${rPort}/redirect-to-ipv6-loopback` })
+    });
+    assert(redirIpv6Res.status === 403, "Redirect hardening: Redirect to [::1] is blocked (HTTP 403)");
+
+    const redirMappedRes = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "192.0.2.118" },
+      body: JSON.stringify({ url: `http://127.0.0.1:${rPort}/redirect-to-ipv4-mapped` })
+    });
+    assert(redirMappedRes.status === 403, "Redirect hardening: Redirect to [::ffff:127.0.0.1] is blocked (HTTP 403)");
+
+    // 9.7 Relative redirect is resolved and validated correctly
+    const redirRelRes = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "192.0.2.119" },
+      body: JSON.stringify({ url: `http://127.0.0.1:${rPort}/redirect-relative` })
+    });
+    assert(redirRelRes.status === 200, "Redirect hardening: Relative redirect resolved correctly (HTTP 200)");
+    const redirRelJson = await redirRelRes.json();
+    assert(redirRelJson.content.includes("Relative Target Reached"), "Redirect hardening: Content from relative redirect target extracted");
+
+    // 9.8 Chain longer than redirect limit (5) is rejected
+    const tooManyRes = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "192.0.2.120" },
+      body: JSON.stringify({ url: `http://127.0.0.1:${rPort}/too-many-start` })
+    });
+    assert(tooManyRes.status === 400, "Redirect hardening: Chain exceeding 5 redirects is rejected (HTTP 400)");
+    const tooManyJson = await tooManyRes.json();
+    assert(tooManyJson.error?.includes("Too many redirects"), "Redirect hardening: Error indicates redirect limit exceeded");
+
+    // 9.9 Redirect loop is detected and rejected
+    const loopRes = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "192.0.2.121" },
+      body: JSON.stringify({ url: `http://127.0.0.1:${rPort}/loop-a` })
+    });
+    assert(loopRes.status === 400, "Redirect hardening: Redirect loop detected and rejected (HTTP 400)");
+    const loopJson = await loopRes.json();
+    assert(loopJson.error?.includes("Redirect loop detected"), "Redirect hardening: Error indicates loop detection");
+
+    // 9.10 Redirect to unsupported protocol (file:) is rejected
+    const fileProtoRes = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "192.0.2.122" },
+      body: JSON.stringify({ url: `http://127.0.0.1:${rPort}/redirect-to-file` })
+    });
+    assert(fileProtoRes.status === 400, "Redirect hardening: Redirect to file: protocol is rejected (HTTP 400)");
+    const fileProtoJson = await fileProtoRes.json();
+    assert(fileProtoJson.error?.includes("unsupported"), "Redirect hardening: Error indicates unsupported protocol");
+
+    // 9.11 Simulated DNS-rebinding case is rejected
+    process.env.SIMULATE_DNS_REBINDING = "true";
+    const rebindRes = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "192.0.2.123" },
+      body: JSON.stringify({ url: `http://127.0.0.1:${rPort}/dns-rebind-page` })
+    });
+    assert(rebindRes.status === 403, "DNS rebinding: Rebind attempt detected and blocked at socket layer (HTTP 403)");
+    const rebindJson = await rebindRes.json();
+    assert(rebindJson.isSSRFBlocked === true, "DNS rebinding: isSSRFBlocked confirmed on socket peer check");
+    delete process.env.SIMULATE_DNS_REBINDING;
+
+    // 9.12 Normal public redirect chain within limit succeeds
+    const chainRes = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "192.0.2.124" },
+      body: JSON.stringify({ url: `http://127.0.0.1:${rPort}/chain-hop-1` })
+    });
+    assert(chainRes.status === 200, "Redirect hardening: Multi-hop redirect chain within limit succeeds (HTTP 200)");
+    const chainJson = await chainRes.json();
+    assert(chainJson.content.includes("Chain 3 Final Content"), "Redirect hardening: Content after multiple hops correctly fetched");
+
+    // 9.13 Response-size and timeout protections still work with manual redirects
+    const redirOversizedRes = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "192.0.2.125" },
+      body: JSON.stringify({ url: `http://127.0.0.1:${rPort}/redirect-to-oversized` })
+    });
+    assert(redirOversizedRes.status === 413, "Redirect hardening: Response size limit enforced after redirect (HTTP 413)");
+
+    process.env.FETCH_TIMEOUT_MS = "200";
+    const redirTimeoutRes = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "192.0.2.126" },
+      body: JSON.stringify({ url: `http://127.0.0.1:${rPort}/redirect-to-hanging` })
+    });
+    assert(redirTimeoutRes.status === 504, "Redirect hardening: Timeout enforced during redirected request (HTTP 504)");
+    delete process.env.FETCH_TIMEOUT_MS;
+
+  } catch (err) {
+    assert(false, `Redirect & DNS-Rebinding tests failed: ${err.message}`);
+  } finally {
+    delete process.env.ALLOW_LOOPBACK_FOR_TESTS;
+    delete process.env.ALLOW_LOCALHOST_FOR_TESTS;
+    delete process.env.BLOCK_LOOPBACK_REDIRECTS;
+    delete process.env.SIMULATE_DNS_REBINDING;
+    delete process.env.FETCH_TIMEOUT_MS;
+    if (redirectMockServer) {
+      if (typeof redirectMockServer.closeAllConnections === "function") {
+        redirectMockServer.closeAllConnections();
+      }
+      await new Promise((resolve) => redirectMockServer.close(resolve));
+    }
     if (spawnedServer) {
       spawnedServer.close();
     }

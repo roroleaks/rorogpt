@@ -123,6 +123,12 @@ All responses automatically include:
 - **Identity Encoding**: Requests `Accept-Encoding: identity` so the byte limit applies directly without compression expansion or decompression bomb risks.
 - **Leak-Free Timer Cleanup**: Guarantees request timeout timers are always cleared in a `finally` block.
 
+### 6. Redirect & DNS-Rebinding SSRF Hardening (`/api/fetch-url`)
+- **Manual Bounded Redirects**: Outbound requests never follow redirects automatically. Redirects are followed manually with a maximum limit of 5 hops (`MAX_REDIRECTS = 5`).
+- **Per-Hop Pre-Validation**: Every redirect `Location` is resolved and completely validated against SSRF rules before initiating the next connection. Private IPv4, loopback, cloud metadata (169.254.169.254), link-local, private IPv6, and IPv4-mapped IPv6 are blocked with HTTP 403.
+- **Redirect Loop & Protocol Safety**: Redirect loops are tracked and blocked. Unsupported protocols (such as `file:`) are rejected with HTTP 400.
+- **Connected Peer & DNS Rebinding Verification**: Verifies all resolved DNS addresses and inspects `socket.remoteAddress` directly on the connected TCP/TLS socket. If the connected peer IP is private or attempts a DNS rebind swap, the socket is immediately destroyed before HTTP data transmission.
+
 ---
 
 ## 🧪 Testing
