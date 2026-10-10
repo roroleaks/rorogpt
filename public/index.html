@@ -81,12 +81,16 @@
           <div class="pc-folder-info">
             <span class="pc-folder-dot" id="pcFolderDot"></span>
             <div class="pc-folder-details">
-              <span class="pc-folder-label">User PC Storage:</span>
+              <span class="pc-folder-label">
+                <span class="folder-text-desktop">User PC Storage:</span>
+                <span class="folder-text-mobile">Mobile Storage:</span>
+              </span>
               <span class="pc-folder-name" id="pcFolderName">No Folder Selected</span>
             </div>
           </div>
-          <button class="pc-folder-btn" id="selectPcFolderBtn" title="Select a special folder on your PC to auto-save chats">
-            📁 Select PC Folder
+          <button class="pc-folder-btn" id="selectPcFolderBtn" type="button" title="Select a storage folder to auto-save chats">
+            <span class="folder-text-desktop">📁 Select PC Folder</span>
+            <span class="folder-text-mobile">📁 Select Mobile Folder</span>
           </button>
         </div>
 
@@ -496,14 +500,17 @@
               Connect a folder on your PC (e.g. <code>Documents/RoroGPT_Chats</code>). Every conversation is auto-saved as <strong>Markdown (.md)</strong> and <strong>JSON (.json)</strong> directly to your hard drive. Zero data is kept on Vercel servers.
             </p>
             <div class="pc-storage-actions">
-              <button class="btn btn-primary btn-sm" id="modalSelectFolderBtn">
-                📁 Choose / Change PC Folder
+              <button class="btn btn-primary btn-sm" id="modalSelectFolderBtn" type="button">
+                <span class="folder-text-desktop">📁 Choose / Change PC Folder</span>
+                <span class="folder-text-mobile">📁 Choose / Change Mobile Folder</span>
               </button>
-              <button class="btn btn-secondary btn-sm" id="modalSyncNowBtn">
-                ⚡ Save All Chats to PC Now
+              <button class="btn btn-secondary btn-sm" id="modalSyncNowBtn" type="button">
+                <span class="folder-text-desktop">⚡ Save All Chats to PC Now</span>
+                <span class="folder-text-mobile">⚡ Save All Chats to Storage Now</span>
               </button>
-              <button class="btn btn-secondary btn-sm" id="modalLoadFromPcBtn">
-                📥 Import from PC Folder
+              <button class="btn btn-secondary btn-sm" id="modalLoadFromPcBtn" type="button">
+                <span class="folder-text-desktop">📥 Import from PC Folder</span>
+                <span class="folder-text-mobile">📥 Import from Mobile Folder</span>
               </button>
             </div>
           </div>
@@ -815,8 +822,9 @@
             <span class="sync-dot" id="librarySyncDot"></span>
             <span class="sync-text" id="librarySyncText">Local Browser Storage (IndexedDB)</span>
           </div>
-          <button class="btn btn-secondary btn-sm" id="librarySyncPcBtn" title="Sync all library items to your connected PC folder">
-            📁 Sync to PC Folder
+          <button class="btn btn-secondary btn-sm" id="librarySyncPcBtn" type="button" title="Sync all library items to your connected folder">
+            <span class="folder-text-desktop">📁 Sync to PC Folder</span>
+            <span class="folder-text-mobile">📁 Sync to Mobile Folder</span>
           </button>
         </div>
 

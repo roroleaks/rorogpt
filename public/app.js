@@ -1444,7 +1444,14 @@ async function initPCFolder() {
 
 async function selectPCFolder() {
   if (!("showDirectoryPicker" in window)) {
-    alert("Your browser does not support native Directory Picker. Please use Google Chrome, Microsoft Edge, Opera, or Brave to auto-save chats directly to your PC folder. You can also use the Export button to save chats anytime.");
+    const isMobile = typeof window !== "undefined" && window.innerWidth <= 768;
+    const msg = isMobile
+      ? "Mobile browsers do not support direct file system folder access. Use the Export button to save chats anytime, or connect a folder on desktop Chrome, Edge, or Brave."
+      : "Your browser does not support native Directory Picker. Please use Google Chrome, Microsoft Edge, Opera, or Brave to auto-save chats directly to your PC folder. You can also use the Export button to save chats anytime.";
+    showToast(isMobile ? "Mobile browsers do not support direct folder access. Use Export Chat." : "Directory Picker not supported in this browser.", "warning");
+    if (typeof alert === "function") {
+      alert(msg);
+    }
     return;
   }
 
@@ -1459,8 +1466,9 @@ async function selectPCFolder() {
     localStorage.setItem("roro_pc_folder_name", handle.name);
     await saveDirHandleToIDB(handle);
 
+    const isMobile = typeof window !== "undefined" && window.innerWidth <= 768;
     updatePCFolderUI(handle.name, true);
-    showToast(`Connected PC Folder: ${handle.name}! Auto-saving all chats...`, "success");
+    showToast(`Connected ${isMobile ? "Mobile" : "PC"} Folder: ${handle.name}! Auto-saving all chats...`, "success");
 
     // Automatically sync all existing chats into the chosen folder
     await saveAllChatsToPC();
@@ -3875,7 +3883,8 @@ function initEvents() {
     DOM.modelPillContainer.classList.toggle("open");
     DOM.modelPillBtn.setAttribute("aria-expanded", DOM.modelPillContainer.classList.contains("open") ? "true" : "false");
   });
-  DOM.inputModelChip.addEventListener("click", () => {
+  DOM.inputModelChip.addEventListener("click", (e) => {
+    e.stopPropagation();
     DOM.modelPillContainer.classList.add("open");
     DOM.modelPillBtn.setAttribute("aria-expanded", "true");
   });
@@ -4496,4 +4505,6 @@ if (typeof window !== "undefined") {
   window.attachLibraryItemToChat = attachLibraryItemToChat;
   window.removeAttachment = removeAttachment;
   window.renderAttachmentsTray = renderAttachmentsTray;
+  window.selectPCFolder = selectPCFolder;
+  window.updatePCFolderUI = updatePCFolderUI;
 }

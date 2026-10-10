@@ -3983,6 +3983,134 @@ async function runTests() {
       assert(win17.localStorage.getItem("roro_theme") === theme, `Mobile Task 3: Theme ${theme} persists in localStorage`);
     });
 
+    // 17.8 Mobile "Select Mobile Folder" & Storage Card Audit
+    const selectPcFolderBtn = win17.document.getElementById("selectPcFolderBtn");
+    assert(selectPcFolderBtn !== null, "Mobile Folder: selectPcFolderBtn exists in sidebar footer");
+    const folderTextDesktop = selectPcFolderBtn.querySelector(".folder-text-desktop");
+    const folderTextMobile = selectPcFolderBtn.querySelector(".folder-text-mobile");
+    assert(folderTextDesktop !== null && folderTextDesktop.textContent.includes("Select PC Folder"), "Mobile Folder: Desktop label 'Select PC Folder' present");
+    assert(folderTextMobile !== null && folderTextMobile.textContent.includes("Select Mobile Folder"), "Mobile Folder: Mobile label 'Select Mobile Folder' present on mobile");
+
+    const pcFolderLabel = win17.document.querySelector(".pc-folder-label");
+    assert(pcFolderLabel !== null, "Mobile Folder: Storage label container exists");
+    assert(pcFolderLabel.querySelector(".folder-text-mobile").textContent.includes("Mobile Storage:"), "Mobile Folder: Mobile label 'Mobile Storage:' present");
+
+    const modalSelectFolderBtn = win17.document.getElementById("modalSelectFolderBtn");
+    assert(modalSelectFolderBtn !== null, "Mobile Folder: Settings modalSelectFolderBtn exists");
+    assert(modalSelectFolderBtn.querySelector(".folder-text-mobile").textContent.includes("Choose / Change Mobile Folder"), "Mobile Folder: Modal button has mobile text span");
+
+    const librarySyncPcBtn = win17.document.getElementById("librarySyncPcBtn");
+    assert(librarySyncPcBtn !== null, "Mobile Folder: Library librarySyncPcBtn exists");
+    assert(librarySyncPcBtn.querySelector(".folder-text-mobile").textContent.includes("Sync to Mobile Folder"), "Mobile Folder: Library sync button has mobile text span");
+
+    // CSS validation for desktop vs mobile toggle
+    assert(cssContent.includes(".folder-text-mobile") && cssContent.includes("display: none !important"), "Mobile Folder: Desktop hides .folder-text-mobile by default");
+    assert(cssContent.includes(".folder-text-desktop") && cssContent.includes("display: inline !important"), "Mobile Folder: Desktop displays .folder-text-desktop by default");
+    assert(cssContent.includes(".folder-text-desktop") && cssContent.includes("display: none !important") && cssContent.includes(".folder-text-mobile") && cssContent.includes("display: inline !important"), "Mobile Folder: Media query swaps labels so mobile displays Select Mobile Folder");
+    assert(cssContent.includes(".pc-folder-btn") && cssContent.includes("min-height: 42px"), "Mobile Folder: pc-folder-btn has accessible min-height 42px on mobile");
+
+    // Test selectPCFolder button click when File System Access API is unsupported (default mobile browser)
+    delete win17.showDirectoryPicker;
+    selectPcFolderBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    const toastContainer = win17.document.getElementById("toastContainer");
+    const lastToast = toastContainer.lastElementChild;
+    assert(lastToast !== null && lastToast.textContent.includes("Mobile"), "Mobile Folder: Warning toast displayed when folder picker is not supported on mobile");
+
+    // Test selectPCFolder button click with supported directory picker mock
+    win17.showDirectoryPicker = async () => ({
+      name: "MyMobileVault",
+      getFileHandle: async () => {},
+      getDirectoryHandle: async () => {}
+    });
+    await win17.selectPCFolder();
+    assert(win17.state.dirHandle !== null && win17.state.dirHandle.name === "MyMobileVault", "Mobile Folder: Directory handle attached to state");
+    assert(win17.state.pcFolderName === "MyMobileVault", "Mobile Folder: pcFolderName state updated");
+    assert(win17.localStorage.getItem("roro_pc_folder_name") === "MyMobileVault", "Mobile Folder: Connected folder persisted in localStorage");
+    assert(win17.document.getElementById("pcFolderName").textContent.includes("MyMobileVault"), "Mobile Folder: pcFolderName UI shows connected folder name");
+    assert(win17.document.getElementById("pcFolderDot").classList.contains("connected"), "Mobile Folder: Status dot displays connected state");
+
+    // 17.9 Front Page Starter Prompt Cards (.prompt-card) & Stop Generation Button
+    const promptCards = win17.document.querySelectorAll(".prompt-card");
+    assert(promptCards.length === 4, "Front Page: 4 starter prompt suggestion cards exist");
+    promptCards.forEach((card, idx) => {
+      assert(card.hasAttribute("data-prompt") && card.getAttribute("data-prompt").length > 0, `Front Page: Prompt card ${idx + 1} has valid data-prompt`);
+    });
+
+    const firstCard = promptCards[0];
+    const expectedPrompt = firstCard.getAttribute("data-prompt");
+    firstCard.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    const currentChat = win17.state.chats[win17.state.currentChatId];
+    assert(
+      chatInput.value === expectedPrompt ||
+      (currentChat && currentChat.messages.some(m => m.content.includes(expectedPrompt))),
+      "Front Page: Clicking prompt card dispatches prompt to chat"
+    );
+
+    const stopGenerationBtn = win17.document.getElementById("stopGenerationBtn");
+    assert(stopGenerationBtn !== null, "Front Page: stopGenerationBtn exists in floating generating bar");
+    let abortCalled = false;
+    win17.state.abortController = { abort: () => { abortCalled = true; } };
+    stopGenerationBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(abortCalled === true, "Front Page: stopGenerationBtn triggers abort on active generation");
+
+    // 17.10 Composer Quick Model Chip (#inputModelChip) & Topbar Export (#exportChatBtn)
+    const inputModelChip = win17.document.getElementById("inputModelChip");
+    assert(inputModelChip !== null, "Composer: inputModelChip exists in action bar");
+    inputModelChip.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(modelPillContainer.classList.contains("open"), "Composer: inputModelChip click opens model selection dropdown");
+    modelPillBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+
+    const exportChatBtn = win17.document.getElementById("exportChatBtn");
+    assert(exportChatBtn !== null, "Topbar: exportChatBtn exists");
+    win17.URL.createObjectURL = () => "blob:mock-export-url";
+    win17.URL.revokeObjectURL = () => {};
+    if (typeof URL !== "undefined") {
+      URL.createObjectURL = URL.createObjectURL || (() => "blob:mock-export-url");
+      URL.revokeObjectURL = URL.revokeObjectURL || (() => {});
+    }
+    exportChatBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(toastContainer.lastElementChild !== null && toastContainer.lastElementChild.textContent.toLowerCase().includes("export"), "Topbar: exportChatBtn triggers export with toast notification");
+
+    // 17.11 Settings, Models & Library Modal Action Buttons on Mobile
+    const toggleApiKeyVisibility = win17.document.getElementById("toggleApiKeyVisibility");
+    const apiKeyInput = win17.document.getElementById("apiKeyInput");
+    assert(toggleApiKeyVisibility !== null, "Settings: toggleApiKeyVisibility button exists");
+    assert(apiKeyInput.type === "password", "Settings: apiKeyInput starts as password type");
+    toggleApiKeyVisibility.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(apiKeyInput.type === "text", "Settings: toggleApiKeyVisibility toggles password to text");
+    toggleApiKeyVisibility.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(apiKeyInput.type === "password", "Settings: toggleApiKeyVisibility toggles text back to password");
+
+    const toggleAppTokenVisibility = win17.document.getElementById("toggleAppTokenVisibility");
+    const appTokenInput = win17.document.getElementById("appTokenInput");
+    if (toggleAppTokenVisibility && appTokenInput) {
+      assert(appTokenInput.type === "password", "Settings: appTokenInput starts as password");
+      toggleAppTokenVisibility.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+      assert(appTokenInput.type === "text", "Settings: toggleAppTokenVisibility toggles to text");
+      toggleAppTokenVisibility.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+      assert(appTokenInput.type === "password", "Settings: toggleAppTokenVisibility toggles back to password");
+    }
+
+    const presetTags = win17.document.querySelectorAll(".preset-tag");
+    assert(presetTags.length >= 3, "Settings: Preset prompt tag buttons exist");
+    const secondTag = presetTags[1];
+    secondTag.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(win17.document.getElementById("systemPromptInput").value === secondTag.getAttribute("data-prompt"), "Settings: Clicking preset tag sets system prompt");
+
+    const saveSettingsBtn = win17.document.getElementById("saveSettingsBtn");
+    assert(saveSettingsBtn !== null, "Settings: saveSettingsBtn exists");
+    apiKeyInput.value = "gsk_testmobilekey123";
+    saveSettingsBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(win17.state.apiKey === "gsk_testmobilekey123", "Settings: saveSettingsBtn saves API key into state");
+    assert(win17.localStorage.getItem("roro_api_key") === "gsk_testmobilekey123", "Settings: saveSettingsBtn persists API key in localStorage");
+
+    const filterPills = win17.document.querySelectorAll(".filter-pill");
+    assert(filterPills.length >= 4, "Library: Filter pill buttons exist");
+    const docsPill = Array.from(filterPills).find(p => p.getAttribute("data-filter") === "document");
+    assert(docsPill !== null, "Library: Document filter pill exists");
+    docsPill.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(win17.state.activeLibFilter === "document", "Library: Clicking filter pill updates activeLibFilter state");
+
   } catch (err) {
     assert(false, `Test Suite 17 failed with error: ${err.message}\n${err.stack}`);
   }
