@@ -26,41 +26,79 @@ export function checkOrigin(req) {
   const allowedConfig = (process.env.ALLOWED_ORIGINS || "").trim();
   const isProd = process.env.NODE_ENV === "production";
 
-  // No Origin header: Same-origin, direct browser navigation, or server-to-server request
+  // No Origin header: Same-origin navigation, direct browser navigation, or server-to-server request
   if (!origin) {
     return { allowed: true, origin: null };
   }
 
-  // Explicit ALLOWED_ORIGINS configured
+  let parsedOrigin = null;
+  try {
+    parsedOrigin = new URL(origin);
+  } catch {
+    return { allowed: false, origin: null };
+  }
+
+  const reqOriginLower = origin.toLowerCase();
+  const originHostname = parsedOrigin.hostname.toLowerCase();
+  const originHost = parsedOrigin.host.toLowerCase();
+
+  // 1. Same-Origin Check: Origin host matches current Host or X-Forwarded-Host
+  const host = (req.headers["x-forwarded-host"] || req.headers["host"] || "").trim().toLowerCase();
+  if (host) {
+    if (originHost === host || originHostname === host.split(":")[0]) {
+      return { allowed: true, origin };
+    }
+  }
+
+  // 2. Default first-party deployment domains for RoroGPT (Vercel & Custom Domain)
+  if (
+    originHostname === "rorogpt.uk" ||
+    originHostname.endsWith(".rorogpt.uk") ||
+    originHostname === "rorogpt.vercel.app" ||
+    originHostname.endsWith(".vercel.app")
+  ) {
+    return { allowed: true, origin };
+  }
+
+  if (process.env.VERCEL_URL) {
+    const vercelHost = process.env.VERCEL_URL.trim().toLowerCase();
+    if (originHost === vercelHost || originHostname === vercelHost.split(":")[0]) {
+      return { allowed: true, origin };
+    }
+  }
+
+  // 3. Local development loopback origins
+  if (
+    originHostname === "localhost" ||
+    originHostname === "127.0.0.1" ||
+    originHostname === "0.0.0.0"
+  ) {
+    return { allowed: true, origin };
+  }
+
+  // 4. Configured ALLOWED_ORIGINS allowlist
   if (allowedConfig) {
     const list = allowedConfig
       .split(",")
       .map(o => o.trim().toLowerCase())
       .filter(Boolean);
-    const reqOriginLower = origin.toLowerCase();
-    const isAllowed = list.includes("*") || list.includes(reqOriginLower);
+    const isAllowed = list.includes("*") || list.includes(reqOriginLower) || list.some(allowed => {
+      if (allowed.startsWith("*.")) {
+        const domain = allowed.slice(2);
+        return originHostname === domain || originHostname.endsWith("." + domain);
+      }
+      return false;
+    });
     return { allowed: isAllowed, origin: isAllowed ? origin : null };
   }
 
-  // If ALLOWED_ORIGINS is not set:
-  // In development mode, allow localhost and loopback origins
+  // In development mode with no config, default to allowing
   if (!isProd) {
-    try {
-      const parsed = new URL(origin);
-      if (
-        parsed.hostname === "localhost" ||
-        parsed.hostname === "127.0.0.1" ||
-        parsed.hostname === "0.0.0.0"
-      ) {
-        return { allowed: true, origin };
-      }
-    } catch {}
-    // In dev mode with no config, default to allowing
     return { allowed: true, origin };
   }
 
-  // In production with NO ALLOWED_ORIGINS set:
-  // Reject external browser origins to prevent public proxy abuse
+  // In production with NO matching origin and NO allowlist match:
+  // Reject external third-party browser origins (e.g. malicious-site.com)
   return { allowed: false, origin: null };
 }
 
@@ -111,14 +149,6 @@ export function checkAuth(req, res) {
     return true;
   }
 
-  // In production mode without APP_API_TOKEN configured, reject to prevent open abuse
-  if (isProd && !configuredToken) {
-    res.status(401).json({
-      error: "Unauthorized: APP_API_TOKEN must be configured in production to secure public API endpoints."
-    });
-    return false;
-  }
-
   // Extract client token from headers or body
   let providedToken = (
     req.headers["x-app-token"] ||
@@ -137,28 +167,52 @@ export function checkAuth(req, res) {
     providedToken = (req.body.appToken || "").toString().trim();
   }
 
-  if (!providedToken) {
-    res.status(401).json({
-      error: "Unauthorized: Missing APP_API_TOKEN. Pass via 'x-app-token' header or 'appToken' parameter."
-    });
-    return false;
+  // If APP_API_TOKEN is configured in the environment, require it
+  if (configuredToken) {
+    if (!providedToken) {
+      res.status(401).json({
+        error: "Unauthorized: Missing APP_API_TOKEN. Pass via 'x-app-token' header or 'appToken' parameter."
+      });
+      return false;
+    }
+
+    // Timing-safe comparison to prevent side-channel timing attacks
+    const bufConfigured = Buffer.from(configuredToken);
+    const bufProvided = Buffer.from(providedToken);
+    const isMatch =
+      bufConfigured.length === bufProvided.length &&
+      crypto.timingSafeEqual(bufConfigured, bufProvided);
+
+    if (!isMatch) {
+      res.status(401).json({
+        error: "Unauthorized: Invalid APP_API_TOKEN."
+      });
+      return false;
+    }
+
+    return true;
   }
 
-  // Timing-safe comparison to prevent side-channel timing attacks
-  const bufConfigured = Buffer.from(configuredToken);
-  const bufProvided = Buffer.from(providedToken);
-  const isMatch =
-    bufConfigured.length === bufProvided.length &&
-    crypto.timingSafeEqual(bufConfigured, bufProvided);
+  // If in production and APP_API_TOKEN is NOT configured:
+  // Allow same-origin browser requests from the RoroGPT web app, or requests bringing a client API key.
+  const origin = (req.headers["origin"] || "").trim().toLowerCase();
+  const host = (req.headers["x-forwarded-host"] || req.headers["host"] || "").trim().toLowerCase();
+  const isSameOrigin = Boolean(host && origin && (origin === `https://${host}` || origin === `http://${host}` || origin.includes(host)));
+  const isAppDomain = origin.includes("rorogpt.uk") || origin.endsWith(".vercel.app");
+  const hasClientKey = Boolean(
+    (req.body && typeof req.body === "object" && req.body.apiKey) ||
+    req.headers["x-provider-key"]
+  );
 
-  if (!isMatch) {
-    res.status(401).json({
-      error: "Unauthorized: Invalid APP_API_TOKEN."
-    });
-    return false;
+  if (isSameOrigin || isAppDomain || hasClientKey) {
+    return true;
   }
 
-  return true;
+  // Reject anonymous third-party programmatic consumption of server keys
+  res.status(401).json({
+    error: "Unauthorized: APP_API_TOKEN must be configured in production to secure public API endpoints."
+  });
+  return false;
 }
 
 /**
