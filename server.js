@@ -49,6 +49,16 @@ function enhanceResponse(res) {
 
 // Parse request body
 function parseBody(req) {
+  if (req.body !== undefined && req.body !== null) {
+    if (typeof req.body === "string") {
+      try {
+        return Promise.resolve(JSON.parse(req.body));
+      } catch {
+        return Promise.resolve(req.body);
+      }
+    }
+    return Promise.resolve(req.body);
+  }
   return new Promise((resolve) => {
     let raw = "";
     req.on("data", chunk => { raw += chunk; });
@@ -62,11 +72,13 @@ function parseBody(req) {
   });
 }
 
-const server = http.createServer(async (req, res) => {
+export async function requestHandler(req, res) {
   enhanceResponse(res);
   applySecurityHeaders(res);
 
-  const url = new URL(req.url, `http://${req.headers.host}`);
+  const host = req.headers["x-forwarded-host"] || req.headers.host || "localhost";
+  const protocol = req.headers["x-forwarded-proto"] || "http";
+  const url = new URL(req.url, `${protocol}://${host}`);
   const pathname = url.pathname;
 
   // API Routes
@@ -122,12 +134,14 @@ const server = http.createServer(async (req, res) => {
   } catch {
     res.status(404).json({ error: "File not found" });
   }
-});
+}
 
-export default server;
+const server = http.createServer(requestHandler);
+
+export default requestHandler;
 export { server, PORT };
 
-if (process.env.AUTORUN_SERVER !== "false") {
+if (!process.env.VERCEL && process.env.AUTORUN_SERVER !== "false") {
   server.listen(PORT, () => {
     console.log("\n========================================================");
     console.log("   🌈 RoroGPT - Colorful Free AI Chat (Vercel Ready)     ");
