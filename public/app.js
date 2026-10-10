@@ -951,6 +951,10 @@ async function handleDocumentFiles(files) {
 
     try {
       const ext = file.name.split(".").pop().toLowerCase();
+      if (["png", "jpg", "jpeg", "webp", "gif"].includes(ext)) {
+        handlePhotoFiles([file]);
+        continue;
+      }
       let extractedText = "";
       let pageCount = null;
 
@@ -2487,29 +2491,43 @@ function initEvents() {
   // ATTACHMENTS & "+" MENU EVENT LISTENERS
   // ==========================================================
 
+  function closeAttachMenu() {
+    if (DOM.attachMenuContainer) DOM.attachMenuContainer.classList.remove("open");
+    if (DOM.attachMenuPopup) DOM.attachMenuPopup.classList.remove("open");
+    if (DOM.attachMenuBtn) DOM.attachMenuBtn.setAttribute("aria-expanded", "false");
+  }
+
+  function toggleAttachMenu() {
+    if (!DOM.attachMenuContainer || !DOM.attachMenuPopup) return;
+    const isCurrentlyOpen = DOM.attachMenuContainer.classList.contains("open") || DOM.attachMenuPopup.classList.contains("open");
+    if (isCurrentlyOpen) {
+      closeAttachMenu();
+    } else {
+      DOM.attachMenuContainer.classList.add("open");
+      DOM.attachMenuPopup.classList.add("open");
+      if (DOM.attachMenuBtn) DOM.attachMenuBtn.setAttribute("aria-expanded", "true");
+    }
+  }
+
   // "+" Attachment Menu Toggle
   if (DOM.attachMenuBtn) {
     DOM.attachMenuBtn.addEventListener("click", (e) => {
+      e.preventDefault();
       e.stopPropagation();
-      const isOpen = DOM.attachMenuPopup.classList.toggle("open");
-      DOM.attachMenuBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+      toggleAttachMenu();
     });
   }
 
   // Close menus on outside click or Escape key
   document.addEventListener("click", (e) => {
     if (DOM.attachMenuContainer && !DOM.attachMenuContainer.contains(e.target)) {
-      DOM.attachMenuPopup.classList.remove("open");
-      DOM.attachMenuBtn.setAttribute("aria-expanded", "false");
+      closeAttachMenu();
     }
   });
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
-      if (DOM.attachMenuPopup) {
-        DOM.attachMenuPopup.classList.remove("open");
-        DOM.attachMenuBtn.setAttribute("aria-expanded", "false");
-      }
+      closeAttachMenu();
       if (state.cameraStream) {
         closeCameraModal();
       }
@@ -2518,9 +2536,10 @@ function initEvents() {
 
   // Action 1: Upload Files
   if (DOM.actionUploadFiles) {
-    DOM.actionUploadFiles.addEventListener("click", () => {
-      DOM.attachMenuPopup.classList.remove("open");
-      DOM.filePickerInput.click();
+    DOM.actionUploadFiles.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeAttachMenu();
+      if (DOM.filePickerInput) DOM.filePickerInput.click();
     });
   }
   if (DOM.filePickerInput) {
@@ -2532,9 +2551,10 @@ function initEvents() {
 
   // Action 2: Upload Photos
   if (DOM.actionUploadPhotos) {
-    DOM.actionUploadPhotos.addEventListener("click", () => {
-      DOM.attachMenuPopup.classList.remove("open");
-      DOM.photoPickerInput.click();
+    DOM.actionUploadPhotos.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeAttachMenu();
+      if (DOM.photoPickerInput) DOM.photoPickerInput.click();
     });
   }
   if (DOM.photoPickerInput) {
@@ -2546,35 +2566,39 @@ function initEvents() {
 
   // Action 3: Add a Skill
   if (DOM.actionAddSkill) {
-    DOM.actionAddSkill.addEventListener("click", () => {
-      DOM.attachMenuPopup.classList.remove("open");
-      DOM.skillModal.classList.add("open");
+    DOM.actionAddSkill.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeAttachMenu();
+      if (DOM.skillModal) DOM.skillModal.classList.add("open");
     });
   }
 
   // Action 4: Take a Photo
   if (DOM.actionTakePhoto) {
-    DOM.actionTakePhoto.addEventListener("click", () => {
-      DOM.attachMenuPopup.classList.remove("open");
+    DOM.actionTakePhoto.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeAttachMenu();
       openCameraModal();
     });
   }
 
   // Action 5: Add a Website Link
   if (DOM.actionAddWebLink) {
-    DOM.actionAddWebLink.addEventListener("click", () => {
-      DOM.attachMenuPopup.classList.remove("open");
-      DOM.webLinkStatusBox.style.display = "none";
-      DOM.webLinkModal.classList.add("open");
+    DOM.actionAddWebLink.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeAttachMenu();
+      if (DOM.webLinkStatusBox) DOM.webLinkStatusBox.style.display = "none";
+      if (DOM.webLinkModal) DOM.webLinkModal.classList.add("open");
     });
   }
 
   // Action 6 & Sidebar: Personal Library
   if (DOM.actionOpenLibrary) {
-    DOM.actionOpenLibrary.addEventListener("click", () => {
-      DOM.attachMenuPopup.classList.remove("open");
+    DOM.actionOpenLibrary.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeAttachMenu();
       loadLibrary();
-      DOM.libraryModal.classList.add("open");
+      if (DOM.libraryModal) DOM.libraryModal.classList.add("open");
     });
   }
   if (DOM.openLibraryBtn) {

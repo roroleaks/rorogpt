@@ -361,10 +361,10 @@
                 </div>
               </div>
 
-              <!-- Hidden File Pickers -->
-              <input type="file" id="filePickerInput" multiple style="display:none;" accept=".pdf,.docx,.doc,.txt,.md,.markdown,.csv,.json,.py,.js,.ts,.jsx,.tsx,.html,.css,.scss,.json5,.xml,.yaml,.yml,.c,.cpp,.h,.java,.sh,.bash,.sql,.rtf,.log">
-              <input type="file" id="photoPickerInput" multiple style="display:none;" accept="image/jpeg,image/png,image/webp,image/gif">
-              <input type="file" id="skillImportInput" style="display:none;" accept=".md,.txt,.zip">
+              <!-- Hidden File Pickers (Offscreen positioning ensures programmatic .click() triggers reliably across all browsers) -->
+              <input type="file" id="filePickerInput" multiple style="position:fixed; top:-2000px; left:-2000px; opacity:0; pointer-events:none;" accept=".pdf,.docx,.doc,.txt,.md,.markdown,.csv,.json,.py,.js,.ts,.jsx,.tsx,.html,.css,.scss,.json5,.xml,.yaml,.yml,.c,.cpp,.h,.java,.sh,.bash,.sql,.rtf,.log">
+              <input type="file" id="photoPickerInput" multiple style="position:fixed; top:-2000px; left:-2000px; opacity:0; pointer-events:none;" accept="image/jpeg,image/png,image/webp,image/gif">
+              <input type="file" id="skillImportInput" style="position:fixed; top:-2000px; left:-2000px; opacity:0; pointer-events:none;" accept=".md,.txt,.zip">
 
               <!-- Active Skill Chip (in composer when skill is active) -->
               <span class="active-skill-composer-chip" id="activeSkillComposerChip" style="display: none;" title="Active Skill instructions applied to this chat">

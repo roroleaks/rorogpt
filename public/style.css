@@ -2593,10 +2593,12 @@ input[type="range"] {
   transform: rotate(45deg);
 }
 
-.attach-menu-btn svg {
+.attach-menu-btn svg,
+.attach-menu-btn svg * {
   width: 16px;
   height: 16px;
   transition: transform 0.2s ease;
+  pointer-events: none;
 }
 
 /* Popup Menu (Floating above button) */
@@ -2624,8 +2626,9 @@ input[type="range"] {
   background: #ffffff;
 }
 
-.attach-menu-container.open .attach-popup-menu {
-  display: flex;
+.attach-menu-container.open .attach-popup-menu,
+.attach-popup-menu.open {
+  display: flex !important;
 }
 
 .attach-opt {
