@@ -3534,6 +3534,227 @@ async function runTests() {
     assert(false, `Test Suite 16 failed with error: ${err.message}\n${err.stack}`);
   }
 
+  // TEST SUITE 17: Mobile Interface: Compact Composer Height, Mobile Delete Chat Functionality & All Buttons Audit
+  console.log("\n--- 17. Mobile View: Compact Composer Height, Delete Chat Functionality & All Buttons Audit ---");
+  try {
+    const cssContent = fs.readFileSync(path.join(__dirname, "public", "style.css"), "utf8");
+    const htmlContent = fs.readFileSync(path.join(__dirname, "public", "index.html"), "utf8");
+    const appJsContent = fs.readFileSync(path.join(__dirname, "public", "app.js"), "utf8");
+
+    // 17.1 Task 1: Mobile Composer Height, full width, and button anchoring
+    assert(cssContent.includes(".main-content") && cssContent.includes("max-height: 100dvh") && cssContent.includes("min-height: 0"), "Mobile Task 1: main-content uses max-height 100dvh and min-height 0 to contain viewport");
+    assert(cssContent.includes(".chat-viewport") && cssContent.includes("min-height: 0") && cssContent.includes("overflow-y: auto"), "Mobile Task 1: chat-viewport has min-height 0 allowing flex column scroll");
+    assert(cssContent.includes(".input-dock") && cssContent.includes("flex-shrink: 0"), "Mobile Task 1: input-dock has flex-shrink 0 preventing composer displacement");
+    assert(cssContent.includes("max-height: 76px !important") && cssContent.includes("min-height: 24px !important"), "Mobile Task 1: chatInput has reduced vertical length (min 24px, max 76px)");
+    assert(cssContent.includes("padding: 6px 10px 4px !important") && cssContent.includes("width: 100%"), "Mobile Task 1: input-wrapper has compact vertical padding while maintaining full width");
+    assert(cssContent.includes("flex-wrap: nowrap !important"), "Mobile Task 1: input-left-tools prevents wrapping so tools stay on a single line");
+    assert(cssContent.includes(".attach-menu-btn") && cssContent.includes("min-width: 44px !important") && cssContent.includes("min-height: 44px !important"), "Mobile Task 1: '+' attach button has 44x44px minimum touch target");
+    assert(cssContent.includes(".send-btn") && cssContent.includes("min-width: 44px !important") && cssContent.includes("min-height: 44px !important"), "Mobile Task 1: send button has 44x44px minimum touch target");
+    assert(cssContent.includes("display: none !important") && cssContent.includes(".footer-disclaimer"), "Mobile Task 1: footer-disclaimer hidden on narrow mobile to conserve vertical space");
+
+    // 17.2 Task 2: Mobile Delete Chat Functionality CSS
+    assert(cssContent.includes(".chat-item-actions") && cssContent.includes("display: flex !important"), "Mobile Task 2: chat-item-actions is visible on mobile (display: flex !important)");
+    assert(cssContent.includes(".chat-action-btn") && cssContent.includes("min-width: 40px") && cssContent.includes("min-height: 40px"), "Mobile Task 2: chat-action-btn has accessible 40x40px touch target on mobile");
+
+    // Setup JSDOM to test functionality in simulated mobile browser
+    const testDom17 = new JSDOM(htmlContent, {
+      runScripts: "dangerously",
+      url: "https://rorogpt.uk"
+    });
+    const win17 = testDom17.window;
+
+    // Polyfill window width as mobile (390px)
+    Object.defineProperty(win17, "innerWidth", { writable: true, configurable: true, value: 390 });
+    Object.defineProperty(win17, "innerHeight", { writable: true, configurable: true, value: 844 });
+    win17.confirm = () => true;
+
+    const purifyPath = path.join(__dirname, "public", "purify.min.js");
+    win17.eval(fs.readFileSync(purifyPath, "utf8"));
+
+    // Fake IndexedDB for app.js initialization
+    win17.eval(`
+      var _memStore = new Map();
+      window.indexedDB = {
+        open: function() {
+          var req = { onsuccess: null, onerror: null, onupgradeneeded: null, result: null };
+          setTimeout(function() {
+            var db = {
+              version: 3,
+              objectStoreNames: { contains: function() { return true; } },
+              transaction: function() {
+                return {
+                  objectStore: function() {
+                    return {
+                      get: function(key) {
+                        var r = { onsuccess: null, onerror: null, result: null };
+                        setTimeout(function() { if (r.onsuccess) r.onsuccess({ target: { result: _memStore.get(key) } }); }, 0);
+                        return r;
+                      },
+                      put: function(val, key) { _memStore.set(key, val); },
+                      getAll: function() {
+                        var r = { onsuccess: null, onerror: null, result: [] };
+                        setTimeout(function() { if (r.onsuccess) r.onsuccess({ target: { result: Array.from(_memStore.values()) } }); }, 0);
+                        return r;
+                      },
+                      delete: function(key) { _memStore.delete(key); }
+                    };
+                  }
+                };
+              }
+            };
+            req.result = db;
+            if (req.onsuccess) req.onsuccess({ target: { result: db } });
+          }, 0);
+          return req;
+        }
+      };
+    `);
+
+    win17.localStorage.clear();
+    win17.eval(appJsContent);
+    win17.document.dispatchEvent(new win17.Event("DOMContentLoaded"));
+
+    // 17.3 Functional Test: Delete inactive conversation on mobile
+    win17.state.chats = {
+      chat_alpha: { id: "chat_alpha", title: "Alpha Chat", createdAt: 1000, model: "qwen/qwen3.8-27b", messages: [] },
+      chat_beta: { id: "chat_beta", title: "Beta Chat", createdAt: 2000, model: "qwen/qwen3.8-27b", messages: [] },
+      chat_gamma: { id: "chat_gamma", title: "Gamma Chat", createdAt: 3000, model: "qwen/qwen3.8-27b", messages: [] }
+    };
+    win17.state.currentChatId = "chat_alpha";
+    win17.renderConversationsSidebar();
+
+    const convList = win17.document.getElementById("conversationsList");
+    assert(convList.children.length === 3, "Mobile Task 2: All 3 conversations rendered in sidebar");
+
+    // Find the delete button for chat_beta (inactive)
+    const betaItem = Array.from(convList.children).find(el => el.textContent.includes("Beta Chat"));
+    assert(betaItem !== null, "Mobile Task 2: Beta Chat item exists in sidebar");
+    const betaDelBtn = betaItem.querySelector(".delete-btn");
+    assert(betaDelBtn !== null, "Mobile Task 2: Delete button exists on chat item");
+    assert(betaDelBtn.getAttribute("aria-label").includes("Beta Chat"), "Mobile Task 2: Delete button has descriptive aria-label");
+    assert(betaDelBtn.type === "button", "Mobile Task 2: Delete button has type='button'");
+
+    // Trigger delete on inactive chat_beta
+    betaDelBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(win17.state.chats.chat_beta === undefined, "Mobile Task 2: Inactive chat_beta deleted from state");
+    assert(win17.state.chats.chat_alpha !== undefined, "Mobile Task 2: Active chat_alpha preserved");
+    assert(win17.state.chats.chat_gamma !== undefined, "Mobile Task 2: Inactive chat_gamma preserved");
+    assert(win17.state.currentChatId === "chat_alpha", "Mobile Task 2: Active chat remains chat_alpha");
+    assert(convList.children.length === 2, "Mobile Task 2: Sidebar conversations immediately re-rendered to 2 items");
+
+    // 17.4 Functional Test: Delete active conversation on mobile
+    const alphaItem = Array.from(convList.children).find(el => el.textContent.includes("Alpha Chat"));
+    const alphaDelBtn = alphaItem.querySelector(".delete-btn");
+    alphaDelBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(win17.state.chats.chat_alpha === undefined, "Mobile Task 2: Active chat_alpha deleted from state");
+    assert(win17.state.currentChatId === "chat_gamma", "Mobile Task 2: Active chat switches to remaining conversation");
+    assert(convList.children.length === 1, "Mobile Task 2: Sidebar updated to 1 remaining conversation");
+
+    // 17.5 Functional Test: Topbar Clear Chat Button (#clearChatBtn)
+    win17.state.chats.chat_gamma.messages = [{ role: "user", content: "Hello Gamma" }];
+    win17.renderMessages(win17.state.chats.chat_gamma.messages);
+    const messagesContainer = win17.document.getElementById("messagesContainer");
+    assert(messagesContainer.children.length > 0, "Mobile Task 2: Messages rendered in chat viewport");
+
+    const clearChatBtn = win17.document.getElementById("clearChatBtn");
+    assert(clearChatBtn !== null, "Mobile Task 2: clearChatBtn exists in topbar");
+    clearChatBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(win17.state.chats.chat_gamma.messages.length === 0, "Mobile Task 2: clearChatBtn clears messages in active conversation");
+    assert(messagesContainer.children.length === 0, "Mobile Task 2: Chat messages viewport is cleared");
+
+    // 17.6 Task 3: Audit all mobile buttons function, appearance, and colors
+    // Sidebar buttons
+    const newChatBtn = win17.document.getElementById("newChatBtn");
+    assert(newChatBtn !== null, "Mobile Task 3: newChatBtn exists");
+    newChatBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(Object.keys(win17.state.chats).length === 2, "Mobile Task 3: newChatBtn creates a new conversation");
+
+    const closeSidebarBtn = win17.document.getElementById("closeSidebarBtn");
+    assert(closeSidebarBtn !== null, "Mobile Task 3: closeSidebarBtn exists");
+    win17.document.getElementById("sidebar").classList.add("open");
+    closeSidebarBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(!win17.document.getElementById("sidebar").classList.contains("open"), "Mobile Task 3: closeSidebarBtn closes sidebar");
+
+    const openLibraryBtn = win17.document.getElementById("openLibraryBtn");
+    openLibraryBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(win17.document.getElementById("libraryModal").classList.contains("open"), "Mobile Task 3: openLibraryBtn opens library modal");
+    win17.document.querySelector('[data-close="libraryModal"]').dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(!win17.document.getElementById("libraryModal").classList.contains("open"), "Mobile Task 3: library modal close button works");
+
+    const openSettingsBtn = win17.document.getElementById("openSettingsBtn");
+    openSettingsBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(win17.document.getElementById("settingsModal").classList.contains("open"), "Mobile Task 3: openSettingsBtn opens settings modal");
+    win17.document.querySelector('[data-close="settingsModal"]').dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(!win17.document.getElementById("settingsModal").classList.contains("open"), "Mobile Task 3: settings modal close button works");
+
+    const openEmbeddingsBtn = win17.document.getElementById("openEmbeddingsBtn");
+    openEmbeddingsBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(win17.document.getElementById("embeddingsModal").classList.contains("open"), "Mobile Task 3: openEmbeddingsBtn opens models & embeddings modal");
+    win17.document.querySelector('[data-close="embeddingsModal"]').dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(!win17.document.getElementById("embeddingsModal").classList.contains("open"), "Mobile Task 3: embeddings modal close button works");
+
+    // Topbar buttons
+    const menuToggleBtn = win17.document.getElementById("menuToggleBtn");
+    menuToggleBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(win17.document.getElementById("sidebar").classList.contains("open"), "Mobile Task 3: menuToggleBtn opens sidebar");
+    win17.document.getElementById("sidebarBackdrop").dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(!win17.document.getElementById("sidebar").classList.contains("open"), "Mobile Task 3: backdrop tap closes sidebar");
+
+    const modelPillBtn = win17.document.getElementById("modelPillBtn");
+    const modelPillContainer = win17.document.getElementById("modelPillContainer");
+    modelPillBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(modelPillContainer.classList.contains("open"), "Mobile Task 3: modelPillBtn toggles model dropdown");
+    modelPillBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(!modelPillContainer.classList.contains("open"), "Mobile Task 3: modelPillBtn closes dropdown on toggle");
+
+    const themePickerBtn = win17.document.getElementById("themePickerBtn");
+    const themeDropdownContainer = win17.document.querySelector(".theme-dropdown-container");
+    themePickerBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(themeDropdownContainer.classList.contains("open"), "Mobile Task 3: themePickerBtn toggles theme menu");
+    themePickerBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(!themeDropdownContainer.classList.contains("open"), "Mobile Task 3: themePickerBtn closes theme menu on toggle");
+
+    // Composer buttons
+    const attachMenuBtn = win17.document.getElementById("attachMenuBtn");
+    const attachMenuContainer = win17.document.getElementById("attachMenuContainer");
+    attachMenuBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(attachMenuContainer.classList.contains("open"), "Mobile Task 3: attachMenuBtn opens attach popup menu");
+    attachMenuBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(!attachMenuContainer.classList.contains("open"), "Mobile Task 3: attachMenuBtn closes attach popup menu on toggle");
+
+    // SFX toggle button
+    const sfxToggleBtn = win17.document.getElementById("sfxToggleBtn");
+    const prevSfx = win17.state.soundEnabled;
+    sfxToggleBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(win17.state.soundEnabled !== prevSfx, "Mobile Task 3: sfxToggleBtn toggles sound setting");
+
+    // Send button state
+    const sendBtn = win17.document.getElementById("sendBtn");
+    const chatInput = win17.document.getElementById("chatInput");
+    assert(sendBtn.disabled === true, "Mobile Task 3: sendBtn is disabled when chat input is empty");
+
+    chatInput.value = "Test mobile message";
+    chatInput.dispatchEvent(new win17.Event("input", { bubbles: true }));
+    assert(sendBtn.disabled === false, "Mobile Task 3: sendBtn enables when text is entered");
+
+    chatInput.value = "";
+    chatInput.dispatchEvent(new win17.Event("input", { bubbles: true }));
+    assert(sendBtn.disabled === true, "Mobile Task 3: sendBtn disables when text is cleared");
+
+    // 17.7 Mobile Theme Palette & Style Audit
+    const allThemes = ["clean-light", "neon-aurora", "sunset-glow", "cyber-teal", "cosmic-violet", "emerald-matrix"];
+    allThemes.forEach(theme => {
+      const opt = win17.document.querySelector(`.theme-opt[data-theme="${theme}"]`);
+      assert(opt !== null, `Mobile Task 3: Theme button exists for ${theme}`);
+      opt.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+      assert(win17.document.documentElement.getAttribute("data-theme") === theme, `Mobile Task 3: Theme ${theme} correctly activated on documentElement`);
+      assert(win17.localStorage.getItem("roro_theme") === theme, `Mobile Task 3: Theme ${theme} persists in localStorage`);
+    });
+
+  } catch (err) {
+    assert(false, `Test Suite 17 failed with error: ${err.message}\n${err.stack}`);
+  }
+
   // Restore global fetch & cleanup server
   globalThis.fetch = originalGlobalFetch;
   if (spawnedServer) {

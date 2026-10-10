@@ -496,7 +496,8 @@ body {
   gap: 4px;
 }
 
-.chat-item:hover .chat-item-actions {
+.chat-item:hover .chat-item-actions,
+.chat-item.active .chat-item-actions {
   display: flex;
 }
 
@@ -3217,9 +3218,20 @@ body.modal-open {
 @media (max-width: 768px) {
   html, body, .app-container {
     height: 100vh;
+    height: 100vh;
     height: 100dvh;
     max-height: 100dvh;
     overflow: hidden;
+  }
+
+  .main-content {
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
   }
 
   /* Safe Area Insets for notched devices */
@@ -3228,10 +3240,13 @@ body.modal-open {
     padding-left: max(10px, env(safe-area-inset-left, 10px));
     padding-right: max(10px, env(safe-area-inset-right, 10px));
     height: 56px;
+    flex-shrink: 0;
   }
 
   .input-dock {
-    padding-bottom: max(10px, env(safe-area-inset-bottom, 10px));
+    flex-shrink: 0;
+    width: 100%;
+    padding-bottom: max(6px, env(safe-area-inset-bottom, 6px));
     padding-left: max(8px, env(safe-area-inset-left, 8px));
     padding-right: max(8px, env(safe-area-inset-right, 8px));
   }
@@ -3407,7 +3422,11 @@ body.modal-open {
 
   /* Chat Viewport & Messages */
   .chat-viewport {
-    padding: 12px 10px;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 10px 8px;
   }
 
   .message-row {
@@ -3421,6 +3440,24 @@ body.modal-open {
     padding: 12px 14px;
     word-break: break-word;
     overflow-wrap: break-word;
+  }
+
+  .message-actions {
+    display: flex !important;
+    opacity: 0.92 !important;
+    gap: 6px;
+    margin-top: 6px;
+  }
+
+  .action-chip-btn {
+    min-height: 36px;
+    min-width: 36px;
+    padding: 6px 10px;
+    font-size: 0.8rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border-radius: 6px;
   }
 
   .message-bubble pre,
@@ -3437,6 +3474,49 @@ body.modal-open {
     -webkit-overflow-scrolling: touch;
   }
 
+  /* Sidebar Chat Items & Mobile Delete Button */
+  .chat-item {
+    min-height: 44px;
+    padding: 8px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .chat-item-actions {
+    display: flex !important;
+    align-items: center;
+    gap: 4px;
+    opacity: 0.9;
+    flex-shrink: 0;
+  }
+
+  .chat-item.active .chat-item-actions,
+  .chat-item:hover .chat-item-actions {
+    opacity: 1;
+  }
+
+  .chat-action-btn {
+    min-width: 40px;
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px;
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: var(--transition);
+  }
+
+  .chat-action-btn:hover,
+  .chat-action-btn:active {
+    color: #ef4444 !important;
+    background: rgba(239, 68, 68, 0.15) !important;
+  }
+
   /* Composer & Touch Inputs (16px prevents iOS Safari auto-zoom) */
   #chatInput,
   .sidebar-search input,
@@ -3446,31 +3526,69 @@ body.modal-open {
     font-size: 16px !important;
   }
 
+  /* Compact length (height) for mobile composer while preserving full responsive width */
   .input-wrapper {
-    padding: 8px 10px;
+    padding: 6px 10px 4px !important;
     border-radius: var(--radius-lg);
+    box-sizing: border-box;
+    width: 100%;
+    margin-bottom: 2px;
   }
 
   #chatInput {
-    min-height: 44px;
-    max-height: 150px;
-    line-height: 1.45;
+    min-height: 24px !important;
+    height: 24px;
+    max-height: 76px !important;
+    line-height: 1.35 !important;
+    padding: 2px 0 !important;
+    box-sizing: border-box;
   }
 
   .input-actions-bar {
-    align-items: center;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
     gap: 8px;
+    margin-top: 4px;
+    padding-top: 4px;
+    min-height: 44px;
   }
 
   .input-left-tools {
+    display: flex !important;
+    align-items: center !important;
     gap: 6px;
-    flex-wrap: wrap;
-    align-items: center;
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .input-left-tools::-webkit-scrollbar {
+    display: none;
+  }
+
+  .attach-menu-container {
+    flex-shrink: 0;
   }
 
   .attach-menu-btn {
-    min-width: 44px;
-    min-height: 44px;
+    min-width: 44px !important;
+    min-height: 44px !important;
+    width: 44px !important;
+    height: 44px !important;
+    border-radius: 50% !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex-shrink: 0;
+  }
+
+  .attach-menu-btn svg {
+    width: 20px;
+    height: 20px;
   }
 
   .attach-popup-menu {
@@ -3486,20 +3604,41 @@ body.modal-open {
   }
 
   .active-skill-composer-chip {
-    max-width: 130px;
+    max-width: 120px;
     padding: 3px 8px;
     font-size: 0.76rem;
+    flex-shrink: 0;
   }
 
   .input-model-chip {
-    max-width: 130px;
+    max-width: 120px;
     padding: 3px 8px;
     font-size: 0.76rem;
+    flex-shrink: 0;
+  }
+
+  .input-right-tools {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    margin-left: auto;
   }
 
   .send-btn {
-    min-width: 44px;
-    min-height: 44px;
+    min-width: 44px !important;
+    min-height: 44px !important;
+    width: 44px !important;
+    height: 44px !important;
+    border-radius: 50% !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex-shrink: 0;
+  }
+
+  .send-btn svg {
+    width: 18px;
+    height: 18px;
   }
 
   .attachments-tray {
@@ -3640,7 +3779,7 @@ body.modal-open {
   }
 
   .footer-disclaimer {
-    font-size: 0.7rem;
+    display: none !important;
   }
 
   .footer-creator-credit {

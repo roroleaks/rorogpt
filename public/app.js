@@ -64,6 +64,10 @@ const state = {
   storageHealth: "healthy"
 };
 
+if (typeof window !== "undefined") {
+  window.state = state;
+}
+
 // ==========================================================
 // SOUND SFX (Web Audio API Synthesizer)
 // ==========================================================
@@ -3013,7 +3017,10 @@ function openMobileSidebar() {
 }
 
 function deleteChat(chatId, e) {
-  if (e) e.stopPropagation();
+  if (e) {
+    if (typeof e.stopPropagation === "function") e.stopPropagation();
+    if (typeof e.preventDefault === "function") e.preventDefault();
+  }
   if (confirm("Delete this conversation?")) {
     delete state.chats[chatId];
     if (state.currentChatId === chatId) {
@@ -3025,6 +3032,7 @@ function deleteChat(chatId, e) {
       }
     } else {
       saveChatsToStorage();
+      renderConversationsSidebar();
     }
     showToast("Chat deleted", "info");
   }
@@ -3083,12 +3091,14 @@ function renderConversationsSidebar() {
     actionsDiv.className = "chat-item-actions";
 
     const delBtn = document.createElement("button");
+    delBtn.type = "button";
     delBtn.className = "chat-action-btn delete-btn";
     delBtn.title = "Delete chat";
+    delBtn.setAttribute("aria-label", `Delete chat ${chat.title || "Untitled"}`);
 
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("width", "14");
-    svg.setAttribute("height", "14");
+    svg.setAttribute("width", "16");
+    svg.setAttribute("height", "16");
     svg.setAttribute("viewBox", "0 0 24 24");
     svg.setAttribute("fill", "none");
     svg.setAttribute("stroke", "currentColor");
@@ -3107,7 +3117,14 @@ function renderConversationsSidebar() {
     item.append(titleSpan, actionsDiv);
 
     item.addEventListener("click", () => loadChat(id));
-    delBtn.addEventListener("click", (e) => deleteChat(id, e));
+    delBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      deleteChat(id, e);
+    });
+    delBtn.addEventListener("touchend", (e) => {
+      e.stopPropagation();
+    });
 
     if (DOM.conversationsList) DOM.conversationsList.appendChild(item);
   });
@@ -3759,7 +3776,8 @@ function initEvents() {
   // Chat input auto-expand & send on Enter
   DOM.chatInput.addEventListener("input", () => {
     DOM.chatInput.style.height = "auto";
-    DOM.chatInput.style.height = Math.min(DOM.chatInput.scrollHeight, 180) + "px";
+    const maxHeight = (typeof window !== "undefined" && window.innerWidth <= 768) ? 76 : 180;
+    DOM.chatInput.style.height = Math.min(DOM.chatInput.scrollHeight, maxHeight) + "px";
     DOM.sendBtn.disabled = (DOM.chatInput.value.trim().length === 0 && state.attachments.length === 0) || state.isGenerating;
   });
 
@@ -4018,14 +4036,15 @@ function initEvents() {
   DOM.computeSimilarityBtn.addEventListener("click", computeSimilarity);
 
   // Clear Chat
-  DOM.clearChatBtn.addEventListener("click", () => {
+  DOM.clearChatBtn.addEventListener("click", (e) => {
+    if (e && typeof e.stopPropagation === "function") e.stopPropagation();
+    const current = state.chats[state.currentChatId];
+    if (!current) return;
     if (confirm("Clear all messages in this conversation?")) {
-      const current = state.chats[state.currentChatId];
-      if (current) {
-        current.messages = [];
-        saveChatsToStorage();
-        renderMessages([]);
-      }
+      current.messages = [];
+      saveChatsToStorage();
+      renderMessages([]);
+      showToast("Conversation cleared", "info");
     }
   });
 
@@ -4433,3 +4452,10 @@ document.addEventListener("DOMContentLoaded", () => {
   fetchModels();
   loadSavedChats();
 });
+
+if (typeof window !== "undefined") {
+  window.renderConversationsSidebar = renderConversationsSidebar;
+  window.deleteChat = deleteChat;
+  window.loadChat = loadChat;
+  window.renderMessages = renderMessages;
+}
