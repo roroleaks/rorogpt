@@ -124,6 +124,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+export default server;
 export { server, PORT };
 
 if (process.env.AUTORUN_SERVER !== "false") {
