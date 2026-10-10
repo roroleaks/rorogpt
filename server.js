@@ -8,6 +8,7 @@ import "dotenv/config";
 import chatHandler from "./api/chat.js";
 import modelsHandler from "./api/models.js";
 import embeddingsHandler from "./api/embeddings.js";
+import fetchUrlHandler from "./api/fetch-url.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -80,6 +81,11 @@ const server = http.createServer(async (req, res) => {
   if (pathname === "/api/embeddings") {
     req.body = await parseBody(req);
     return embeddingsHandler(req, res);
+  }
+
+  if (pathname === "/api/fetch-url") {
+    req.body = await parseBody(req);
+    return fetchUrlHandler(req, res);
   }
 
   // Static files

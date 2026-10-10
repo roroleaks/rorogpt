@@ -148,6 +148,94 @@ async function runTests() {
     assert(false, `GET /api/chat method check failed: ${err.message}`);
   }
 
+  // TEST SUITE 4: Universal Attachment & Personal Library Verification
+  console.log("\n--- 4. Universal Attachment & Personal Library Verification ---");
+  assert(fs.existsSync(path.join(__dirname, "api/fetch-url.js")), "api/fetch-url.js exists");
+
+  // Check client libraries in HTML
+  assert(htmlContent.includes("pdf.min.js"), "PDF.js parser included in HTML");
+  assert(htmlContent.includes("mammoth.browser.min.js"), "Mammoth DOCX parser included in HTML");
+  assert(htmlContent.includes("jszip.min.js"), "JSZip package parser included in HTML");
+
+  // Check Attachment Menu & Controls in HTML
+  assert(htmlContent.includes('id="attachMenuBtn"'), "'+' Attachment button present beside composer");
+  assert(htmlContent.includes('id="attachMenuPopup"'), "Attachment popup menu present");
+  assert(htmlContent.includes('id="actionUploadFiles"'), "Action 1 'Upload files' button present");
+  assert(htmlContent.includes('id="actionUploadPhotos"'), "Action 2 'Upload photos' button present");
+  assert(htmlContent.includes('id="actionAddSkill"'), "Action 3 'Add a skill' button present");
+  assert(htmlContent.includes('id="actionTakePhoto"'), "Action 4 'Take a photo' button present");
+  assert(htmlContent.includes('id="actionAddWebLink"'), "Action 5 'Add a website link' button present");
+  assert(htmlContent.includes('id="actionOpenLibrary"'), "Personal Library option present in '+' menu");
+  assert(htmlContent.includes('id="openLibraryBtn"'), "Personal Library button present in sidebar");
+  assert(htmlContent.includes('id="attachmentsTray"'), "Attachments preview tray present in input wrapper");
+  assert(htmlContent.includes('id="activeSkillComposerChip"'), "Active skill composer chip present");
+
+  // Check Modals
+  assert(htmlContent.includes('id="cameraModal"'), "Live Camera modal present");
+  assert(htmlContent.includes('id="webLinkModal"'), "Website link fetcher modal present");
+  assert(htmlContent.includes('id="skillModal"'), "Skills management modal present");
+  assert(htmlContent.includes('id="libraryModal"'), "Personal Library modal present");
+  assert(htmlContent.includes('id="itemPreviewModal"'), "Item preview modal present");
+
+  // TEST SUITE 5: SSRF Protection & Web Link Fetcher Security
+  console.log("\n--- 5. SSRF Security & /api/fetch-url Endpoint Verification ---");
+  try {
+    // 5.1 Rejects missing URL
+    const emptyRes = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({})
+    });
+    assert(emptyRes.status === 400, "Empty URL returns HTTP 400 Bad Request");
+
+    // 5.2 Rejects Localhost SSRF
+    const localRes = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: "http://localhost:3000/api/models" })
+    });
+    assert(localRes.status === 403, "SSRF Defense blocks http://localhost (HTTP 403)");
+
+    // 5.3 Rejects 127.0.0.1 Loopback
+    const loopRes = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: "http://127.0.0.1:8080/secret" })
+    });
+    assert(loopRes.status === 403, "SSRF Defense blocks http://127.0.0.1 (HTTP 403)");
+
+    // 5.4 Rejects AWS/Cloud Metadata IP 169.254.169.254
+    const metaRes = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: "http://169.254.169.254/latest/meta-data/" })
+    });
+    assert(metaRes.status === 403, "SSRF Defense blocks cloud metadata address 169.254.169.254 (HTTP 403)");
+
+    // 5.5 Rejects Non-HTTP protocols
+    const fileRes = await fetch(`${baseUrl}/api/fetch-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: "file:///etc/passwd" })
+    });
+    assert(fileRes.status === 400 || fileRes.status === 403, "SSRF Defense blocks file:/// protocol");
+  } catch (err) {
+    assert(false, `/api/fetch-url SSRF security tests failed: ${err.message}`);
+  }
+
+  // TEST SUITE 6: Vision Capability Metadata
+  console.log("\n--- 6. Vision Multimodal Model Capabilities ---");
+  try {
+    const res = await fetch(`${baseUrl}/api/models`);
+    const data = await res.json();
+    const visionModels = data.models.filter(m => m.supportsVision === true);
+    assert(visionModels.length >= 2, `Identified ${visionModels.length} vision-capable models (e.g. Gemini 2.0 Flash, Llama 3.2 Vision)`);
+    const hasGeminiVision = visionModels.some(m => m.id === "gemini-2.0-flash");
+    assert(hasGeminiVision, "gemini-2.0-flash has supportsVision: true");
+  } catch (err) {
+    assert(false, `Vision model checks failed: ${err.message}`);
+  }
+
   // Summary
   console.log("\n========================================================");
   console.log(`   TOTAL TESTS: ${passed + failed} | PASSED: ${passed} | FAILED: ${failed}`);

@@ -77,7 +77,9 @@ export default async function handler(req, res) {
     targetModel = model.replace(":free", "");
 
     // Robust model translation to active Groq models (prevents "model does not exist" errors)
-    if (targetModel.includes("120b") || targetModel.includes("r1") || targetModel.includes("70b")) {
+    if (targetModel.includes("vision")) {
+      targetModel = "llama-3.2-11b-vision-preview";
+    } else if (targetModel.includes("120b") || targetModel.includes("r1") || targetModel.includes("70b")) {
       targetModel = "openai/gpt-oss-120b";
     } else if (targetModel.includes("20b")) {
       targetModel = "openai/gpt-oss-20b";
@@ -95,16 +97,56 @@ export default async function handler(req, res) {
     targetModel = model.endsWith(":free") ? model : `${model}:free`;
   }
 
+  // Determine if target model supports multimodal vision
+  const isVisionModel = targetModel.includes("vision") || targetModel.startsWith("gemini-");
+
+  // Format system prompt and active skill instructions
+  const { skillPrompt = "" } = body || {};
+  let effectiveSystemPrompt = (systemPrompt || "").trim();
+  if (skillPrompt && typeof skillPrompt === "string" && skillPrompt.trim()) {
+    effectiveSystemPrompt = effectiveSystemPrompt
+      ? `${effectiveSystemPrompt}\n\n=== Active Skill Instructions ===\n${skillPrompt.trim()}\n=== End Skill Instructions ===`
+      : `=== Active Skill Instructions ===\n${skillPrompt.trim()}\n=== End Skill Instructions ===`;
+  }
+
   const formattedMessages = [];
-  if (systemPrompt && systemPrompt.trim()) {
+  if (effectiveSystemPrompt) {
     formattedMessages.push({
       role: "system",
-      content: systemPrompt.trim()
+      content: effectiveSystemPrompt
     });
   }
 
   for (const msg of messages) {
-    if (msg && msg.role && msg.content !== undefined) {
+    if (!msg || !msg.role || msg.content === undefined) continue;
+
+    if (Array.isArray(msg.content)) {
+      if (isVisionModel) {
+        // Model supports multimodal vision array directly
+        formattedMessages.push({
+          role: msg.role,
+          content: msg.content
+        });
+      } else {
+        // Fallback for text-only models: extract text blocks and note image attachments
+        const textParts = [];
+        let hasImage = false;
+        for (const part of msg.content) {
+          if (part?.type === "text" && part.text) {
+            textParts.push(part.text);
+          } else if (part?.type === "image_url") {
+            hasImage = true;
+          }
+        }
+        if (hasImage) {
+          textParts.push("\n[Note: An image was attached, but the active model is text-only. Please switch to Gemini 2.0 Flash or Llama 3.2 Vision in the top bar to inspect images.]");
+        }
+        formattedMessages.push({
+          role: msg.role,
+          content: textParts.join("\n") || "(attached content)"
+        });
+      }
+    } else {
       formattedMessages.push({
         role: msg.role,
         content: String(msg.content)

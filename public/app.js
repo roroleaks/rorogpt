@@ -42,7 +42,16 @@ const state = {
   abortController: null,
   // PC Local Storage
   dirHandle: null,
-  pcFolderName: localStorage.getItem("roro_pc_folder_name") || ""
+  pcFolderName: localStorage.getItem("roro_pc_folder_name") || "",
+  // Attachments & Personal Library
+  attachments: [],
+  activeSkill: null,
+  skills: [],
+  libraryItems: [],
+  activeLibFilter: "all",
+  cameraStream: null,
+  capturedPhotoData: null,
+  previewPendingItem: null
 };
 
 // ==========================================================
@@ -168,7 +177,75 @@ const DOM = {
   modalPcFolderName: document.getElementById("modalPcFolderName"),
   modalSelectFolderBtn: document.getElementById("modalSelectFolderBtn"),
   modalSyncNowBtn: document.getElementById("modalSyncNowBtn"),
-  modalLoadFromPcBtn: document.getElementById("modalLoadFromPcBtn")
+  modalLoadFromPcBtn: document.getElementById("modalLoadFromPcBtn"),
+  // Attachments Menu & Tray
+  attachMenuContainer: document.getElementById("attachMenuContainer"),
+  attachMenuBtn: document.getElementById("attachMenuBtn"),
+  attachMenuPopup: document.getElementById("attachMenuPopup"),
+  actionUploadFiles: document.getElementById("actionUploadFiles"),
+  actionUploadPhotos: document.getElementById("actionUploadPhotos"),
+  actionAddSkill: document.getElementById("actionAddSkill"),
+  actionTakePhoto: document.getElementById("actionTakePhoto"),
+  actionAddWebLink: document.getElementById("actionAddWebLink"),
+  actionOpenLibrary: document.getElementById("actionOpenLibrary"),
+  attachmentsTray: document.getElementById("attachmentsTray"),
+  filePickerInput: document.getElementById("filePickerInput"),
+  photoPickerInput: document.getElementById("photoPickerInput"),
+  skillImportInput: document.getElementById("skillImportInput"),
+  activeSkillComposerChip: document.getElementById("activeSkillComposerChip"),
+  activeSkillComposerName: document.getElementById("activeSkillComposerName"),
+  clearActiveSkillBtn: document.getElementById("clearActiveSkillBtn"),
+  openLibraryBtn: document.getElementById("openLibraryBtn"),
+  // Camera Modal
+  cameraModal: document.getElementById("cameraModal"),
+  cameraVideo: document.getElementById("cameraVideo"),
+  cameraCanvas: document.getElementById("cameraCanvas"),
+  cameraSnapshotPreview: document.getElementById("cameraSnapshotPreview"),
+  cameraErrorBanner: document.getElementById("cameraErrorBanner"),
+  cameraLiveControls: document.getElementById("cameraLiveControls"),
+  cameraReviewControls: document.getElementById("cameraReviewControls"),
+  capturePhotoBtn: document.getElementById("capturePhotoBtn"),
+  retakePhotoBtn: document.getElementById("retakePhotoBtn"),
+  usePhotoBtn: document.getElementById("usePhotoBtn"),
+  // Web Link Modal
+  webLinkModal: document.getElementById("webLinkModal"),
+  webLinkUrlInput: document.getElementById("webLinkUrlInput"),
+  webLinkInstructionInput: document.getElementById("webLinkInstructionInput"),
+  webLinkStatusBox: document.getElementById("webLinkStatusBox"),
+  fetchAndAttachUrlBtn: document.getElementById("fetchAndAttachUrlBtn"),
+  // Skills Modal
+  skillModal: document.getElementById("skillModal"),
+  tabSavedSkills: document.getElementById("tabSavedSkills"),
+  tabNewSkill: document.getElementById("tabNewSkill"),
+  contentSavedSkills: document.getElementById("contentSavedSkills"),
+  contentNewSkill: document.getElementById("contentNewSkill"),
+  savedSkillsCount: document.getElementById("savedSkillsCount"),
+  skillsListContainer: document.getElementById("skillsListContainer"),
+  skillImportDropzone: document.getElementById("skillImportDropzone"),
+  browseSkillFileBtn: document.getElementById("browseSkillFileBtn"),
+  newSkillNameInput: document.getElementById("newSkillNameInput"),
+  newSkillDescInput: document.getElementById("newSkillDescInput"),
+  newSkillInstructionsInput: document.getElementById("newSkillInstructionsInput"),
+  saveNewSkillBtn: document.getElementById("saveNewSkillBtn"),
+  // Personal Library Modal
+  libraryModal: document.getElementById("libraryModal"),
+  librarySearchInput: document.getElementById("librarySearchInput"),
+  libraryFilterPills: document.getElementById("libraryFilterPills"),
+  libraryGridContainer: document.getElementById("libraryGridContainer"),
+  librarySyncDot: document.getElementById("librarySyncDot"),
+  librarySyncText: document.getElementById("librarySyncText"),
+  librarySyncPcBtn: document.getElementById("librarySyncPcBtn"),
+  libCountAll: document.getElementById("libCountAll"),
+  libCountDocs: document.getElementById("libCountDocs"),
+  libCountPhotos: document.getElementById("libCountPhotos"),
+  libCountSkills: document.getElementById("libCountSkills"),
+  libCountLinks: document.getElementById("libCountLinks"),
+  // Preview Modal
+  itemPreviewModal: document.getElementById("itemPreviewModal"),
+  previewModalIcon: document.getElementById("previewModalIcon"),
+  previewModalTitle: document.getElementById("previewModalTitle"),
+  previewModalBody: document.getElementById("previewModalBody"),
+  previewAttachToChatBtn: document.getElementById("previewAttachToChatBtn")
 };
 
 // ==========================================================
@@ -516,14 +593,63 @@ function renderEmbeddingsUI() {
 // ==========================================================
 const IDB_NAME = "RoroGPT_Storage";
 const IDB_STORE = "handles";
+const IDB_STORE_LIB = "library_items";
+const IDB_STORE_SKILLS = "skills";
 
 function openIDB() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(IDB_NAME, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE);
+    const req = indexedDB.open(IDB_NAME, 2);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains("handles")) db.createObjectStore("handles");
+      if (!db.objectStoreNames.contains(IDB_STORE_LIB)) db.createObjectStore(IDB_STORE_LIB, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(IDB_STORE_SKILLS)) db.createObjectStore(IDB_STORE_SKILLS, { keyPath: "id" });
+    };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
+}
+
+async function idbPut(storeName, item) {
+  try {
+    const db = await openIDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, "readwrite");
+      tx.objectStore(storeName).put(item);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (e) {
+    console.warn(`IDB Put error in ${storeName}`, e);
+  }
+}
+
+async function idbGetAll(storeName) {
+  try {
+    const db = await openIDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, "readonly");
+      const req = tx.objectStore(storeName).getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  } catch {
+    return [];
+  }
+}
+
+async function idbDelete(storeName, key) {
+  try {
+    const db = await openIDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, "readwrite");
+      tx.objectStore(storeName).delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (e) {
+    console.warn(`IDB Delete error in ${storeName}`, e);
+  }
 }
 
 async function saveDirHandleToIDB(handle) {
@@ -717,6 +843,816 @@ async function importChatsFromPC() {
 }
 
 // ==========================================================
+// UNIVERSAL ATTACHMENTS, CAMERA, WEBLINKS, SKILLS & PERSONAL LIBRARY
+// ==========================================================
+
+function formatBytes(bytes, decimals = 1) {
+  if (!bytes || bytes === 0) return "0 B";
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
+}
+
+// ----------------------------------------------------------
+// Attachment Tray in Composer
+// ----------------------------------------------------------
+function renderAttachmentsTray() {
+  if (!DOM.attachmentsTray) return;
+  if (state.attachments.length === 0) {
+    DOM.attachmentsTray.style.display = "none";
+    DOM.attachmentsTray.innerHTML = "";
+    if (DOM.sendBtn) {
+      DOM.sendBtn.disabled = DOM.chatInput.value.trim().length === 0 || state.isGenerating;
+    }
+    return;
+  }
+
+  DOM.attachmentsTray.style.display = "flex";
+  DOM.attachmentsTray.innerHTML = "";
+
+  state.attachments.forEach(att => {
+    const chip = document.createElement("div");
+    chip.className = `attachment-chip ${att.type}`;
+    chip.setAttribute("data-id", att.id);
+
+    let visual = "";
+    if (att.type === "image" && (att.previewUrl || att.base64Data)) {
+      visual = `<img src="${att.previewUrl || att.base64Data}" class="chip-thumbnail" alt="${escapeHTML(att.name)}">`;
+    } else {
+      const icon = att.type === "weblink" ? "🔗" : att.type === "skill" ? "⚡" : "📄";
+      visual = `<span class="chip-icon">${icon}</span>`;
+    }
+
+    chip.innerHTML = `
+      ${visual}
+      <div class="chip-info">
+        <span class="chip-name" title="${escapeHTML(att.name)}">${escapeHTML(att.name)}</span>
+        <span class="chip-meta">${escapeHTML(att.meta || "")}</span>
+      </div>
+      <div class="chip-actions">
+        <button class="chip-btn chip-save-btn" title="Save to Personal Library" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+        </button>
+        <button class="chip-btn chip-remove-btn" title="Remove attachment" type="button">&times;</button>
+      </div>
+    `;
+
+    chip.querySelector(".chip-remove-btn").addEventListener("click", () => {
+      removeAttachment(att.id);
+    });
+
+    chip.querySelector(".chip-save-btn").addEventListener("click", () => {
+      saveAttachmentToLibrary(att.id);
+    });
+
+    DOM.attachmentsTray.appendChild(chip);
+  });
+
+  if (DOM.sendBtn) {
+    DOM.sendBtn.disabled = state.isGenerating;
+  }
+}
+
+function removeAttachment(id) {
+  state.attachments = state.attachments.filter(a => a.id !== id);
+  renderAttachmentsTray();
+}
+
+async function saveAttachmentToLibrary(id) {
+  const att = state.attachments.find(a => a.id === id);
+  if (!att) return;
+  const libItem = {
+    ...att,
+    id: "lib_" + Date.now() + "_" + Math.random().toString(36).substr(2, 4),
+    savedAt: Date.now()
+  };
+  await idbPut(IDB_STORE_LIB, libItem);
+  await loadLibrary();
+  showToast(`Saved "${att.name}" to Personal Library!`, "success");
+}
+
+// ----------------------------------------------------------
+// Document Parsing (PDF.js, Mammoth DOCX, Code/Text)
+// ----------------------------------------------------------
+if (window.pdfjsLib) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+}
+
+async function handleDocumentFiles(files) {
+  if (!files || files.length === 0) return;
+
+  for (const file of Array.from(files)) {
+    if (file.size > 25 * 1024 * 1024) {
+      showToast(`File "${file.name}" exceeds 25MB limit.`, "error");
+      continue;
+    }
+
+    try {
+      const ext = file.name.split(".").pop().toLowerCase();
+      let extractedText = "";
+      let pageCount = null;
+
+      if (ext === "pdf") {
+        if (!window.pdfjsLib) {
+          throw new Error("PDF parser library not loaded.");
+        }
+        const arrayBuffer = await file.arrayBuffer();
+        const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+        const pdf = await loadingTask.promise;
+        pageCount = pdf.numPages;
+        let pagesText = [];
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          const pageStr = content.items.map(item => item.str).join(" ");
+          pagesText.push(`[Page ${i} of ${pdf.numPages}]\n${pageStr}`);
+        }
+        extractedText = pagesText.join("\n\n");
+      } else if (ext === "docx" || ext === "doc") {
+        if (!window.mammoth) {
+          throw new Error("DOCX parser library not loaded.");
+        }
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await mammoth.extractRawText({ arrayBuffer });
+        extractedText = result.value;
+      } else {
+        // Plain text, Markdown, CSV, JSON, code files (.js, .py, .ts, etc.)
+        extractedText = await file.text();
+      }
+
+      if (!extractedText.trim()) {
+        showToast(`Document "${file.name}" appears to be empty or unscannable.`, "info");
+      }
+
+      // Check for content limit (120,000 characters to avoid silent truncation)
+      let isTruncated = false;
+      if (extractedText.length > 120000) {
+        extractedText = extractedText.slice(0, 120000) + "\n\n[...Document truncated to first 120,000 characters to fit model context window...]";
+        isTruncated = true;
+      }
+
+      const metaParts = [formatBytes(file.size)];
+      if (pageCount) metaParts.push(`${pageCount} pages`);
+      if (isTruncated) metaParts.push("Truncated");
+
+      const attachment = {
+        id: "att_doc_" + Date.now() + "_" + Math.random().toString(36).substr(2, 4),
+        type: "document",
+        name: file.name,
+        size: file.size,
+        mimeType: file.type || "text/plain",
+        textContent: extractedText,
+        meta: metaParts.join(" • "),
+        createdAt: Date.now()
+      };
+
+      state.attachments.push(attachment);
+      renderAttachmentsTray();
+      showToast(`Attached document "${file.name}"!`, "success");
+    } catch (err) {
+      showToast(`Failed to parse "${file.name}": ${err.message}`, "error");
+    }
+  }
+}
+
+// ----------------------------------------------------------
+// Photos & Images
+// ----------------------------------------------------------
+function handlePhotoFiles(files) {
+  if (!files || files.length === 0) return;
+
+  for (const file of Array.from(files)) {
+    if (file.size > 12 * 1024 * 1024) {
+      showToast(`Image "${file.name}" exceeds 12MB limit.`, "error");
+      continue;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target.result;
+      const attachment = {
+        id: "att_img_" + Date.now() + "_" + Math.random().toString(36).substr(2, 4),
+        type: "image",
+        name: file.name,
+        size: file.size,
+        mimeType: file.type || "image/jpeg",
+        previewUrl: dataUrl,
+        base64Data: dataUrl,
+        meta: formatBytes(file.size),
+        createdAt: Date.now()
+      };
+      state.attachments.push(attachment);
+      renderAttachmentsTray();
+      showToast(`Attached photo "${file.name}"!`, "success");
+    };
+    reader.onerror = () => {
+      showToast(`Could not read "${file.name}".`, "error");
+    };
+    reader.readAsDataURL(file);
+  }
+}
+
+// ----------------------------------------------------------
+// Camera Capture (getUserMedia)
+// ----------------------------------------------------------
+async function openCameraModal() {
+  if (DOM.cameraErrorBanner) DOM.cameraErrorBanner.style.display = "none";
+  if (DOM.cameraSnapshotPreview) DOM.cameraSnapshotPreview.style.display = "none";
+  if (DOM.cameraVideo) DOM.cameraVideo.style.display = "block";
+  if (DOM.cameraLiveControls) DOM.cameraLiveControls.style.display = "flex";
+  if (DOM.cameraReviewControls) DOM.cameraReviewControls.style.display = "none";
+  state.capturedPhotoData = null;
+
+  DOM.cameraModal.classList.add("open");
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    if (DOM.cameraErrorBanner) {
+      DOM.cameraErrorBanner.style.display = "block";
+      DOM.cameraErrorBanner.innerHTML = "Camera API is not supported in this browser. Please use <strong>Upload photos</strong> instead.";
+    }
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }
+    });
+    state.cameraStream = stream;
+    DOM.cameraVideo.srcObject = stream;
+  } catch (err) {
+    if (DOM.cameraErrorBanner) {
+      DOM.cameraErrorBanner.style.display = "block";
+      DOM.cameraErrorBanner.innerHTML = `Camera access error: ${escapeHTML(err.message)}.<br>Please allow camera permissions or use <strong>Upload photos</strong>.`;
+    }
+  }
+}
+
+function closeCameraModal() {
+  if (state.cameraStream) {
+    state.cameraStream.getTracks().forEach(t => t.stop());
+    state.cameraStream = null;
+  }
+  if (DOM.cameraVideo) DOM.cameraVideo.srcObject = null;
+  DOM.cameraModal.classList.remove("open");
+}
+
+function captureCameraPhoto() {
+  if (!DOM.cameraVideo || !DOM.cameraCanvas) return;
+  const video = DOM.cameraVideo;
+  const canvas = DOM.cameraCanvas;
+  canvas.width = video.videoWidth || 640;
+  canvas.height = video.videoHeight || 480;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+  state.capturedPhotoData = dataUrl;
+
+  DOM.cameraSnapshotPreview.src = dataUrl;
+  DOM.cameraSnapshotPreview.style.display = "block";
+  DOM.cameraVideo.style.display = "none";
+
+  DOM.cameraLiveControls.style.display = "none";
+  DOM.cameraReviewControls.style.display = "flex";
+}
+
+function retakeCameraPhoto() {
+  state.capturedPhotoData = null;
+  DOM.cameraSnapshotPreview.style.display = "none";
+  DOM.cameraVideo.style.display = "block";
+  DOM.cameraLiveControls.style.display = "flex";
+  DOM.cameraReviewControls.style.display = "none";
+}
+
+function useCapturedPhoto() {
+  if (!state.capturedPhotoData) return;
+  const timestamp = new Date().toLocaleTimeString().replace(/:/g, "-");
+  const fileName = `Camera_Photo_${timestamp}.jpg`;
+  const estimatedSize = Math.round((state.capturedPhotoData.length * 3) / 4);
+
+  const attachment = {
+    id: "att_cam_" + Date.now(),
+    type: "image",
+    name: fileName,
+    size: estimatedSize,
+    mimeType: "image/jpeg",
+    previewUrl: state.capturedPhotoData,
+    base64Data: state.capturedPhotoData,
+    meta: formatBytes(estimatedSize),
+    createdAt: Date.now()
+  };
+
+  state.attachments.push(attachment);
+  renderAttachmentsTray();
+  closeCameraModal();
+  showToast("Photo captured and attached!", "success");
+}
+
+// ----------------------------------------------------------
+// Website Link (Safe Retrieval Endpoint)
+// ----------------------------------------------------------
+async function fetchAndAttachWebLink() {
+  const url = (DOM.webLinkUrlInput.value || "").trim();
+  const instruction = (DOM.webLinkInstructionInput.value || "").trim();
+
+  if (!url) {
+    showToast("Please enter a valid website URL", "error");
+    return;
+  }
+
+  if (!url.startsWith("http://") && !url.startsWith("https://")) {
+    showToast("URL must start with http:// or https://", "error");
+    return;
+  }
+
+  DOM.webLinkStatusBox.style.display = "block";
+  DOM.webLinkStatusBox.className = "weblink-status-box loading";
+  DOM.webLinkStatusBox.innerHTML = `<span class="pulsing-dot"></span> <span>Fetching and analyzing webpage content safely...</span>`;
+  DOM.fetchAndAttachUrlBtn.disabled = true;
+
+  try {
+    const res = await fetch("/api/fetch-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url })
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || "Web content retrieval failed");
+    }
+
+    DOM.webLinkStatusBox.className = "weblink-status-box success";
+    DOM.webLinkStatusBox.innerHTML = `✅ Successfully extracted "<strong>${escapeHTML(data.title)}</strong>" (${data.content.length} chars).`;
+
+    let siteHostname = "";
+    try {
+      siteHostname = new URL(url).hostname;
+    } catch {
+      siteHostname = url;
+    }
+
+    const attachment = {
+      id: "att_url_" + Date.now(),
+      type: "weblink",
+      name: data.title || siteHostname,
+      url: url,
+      instruction: instruction,
+      textContent: data.content,
+      summary: data.description || "",
+      siteName: data.siteName || siteHostname,
+      meta: `Web Link • ${data.siteName || siteHostname}`,
+      createdAt: Date.now()
+    };
+
+    state.attachments.push(attachment);
+    renderAttachmentsTray();
+
+    showToast(`Website "${attachment.name}" attached!`, "success");
+    setTimeout(() => {
+      DOM.webLinkModal.classList.remove("open");
+      DOM.webLinkUrlInput.value = "";
+      DOM.webLinkInstructionInput.value = "";
+      DOM.webLinkStatusBox.style.display = "none";
+    }, 600);
+  } catch (err) {
+    DOM.webLinkStatusBox.className = "weblink-status-box error";
+    DOM.webLinkStatusBox.innerHTML = `⚠️ ${escapeHTML(err.message)}`;
+    showToast(err.message, "error");
+  } finally {
+    DOM.fetchAndAttachUrlBtn.disabled = false;
+  }
+}
+
+// ----------------------------------------------------------
+// Skills Management (Reusable AI Instructions)
+// ----------------------------------------------------------
+const DEFAULT_SKILLS = [
+  {
+    id: "skill_fullstack_architect",
+    name: "Fullstack Code Architect",
+    description: "Enforces production-grade, bug-free code with explicit types, error handling, and modern architecture.",
+    instructions: "You are a Principal Fullstack Software Engineer. Produce production-grade, robust, and clean code. Enforce type safety, structured modular design, comprehensive error handling, and provide concise rationale for key technical decisions.",
+    createdAt: Date.now()
+  },
+  {
+    id: "skill_concise_explainer",
+    name: "Concise Technical Explainer",
+    description: "High-signal, zero-fluff explanations with sharp bullet points and working minimal code examples.",
+    instructions: "You are an ultra-concise technical educator. Omit all conversational fluff, pleasantries, and boilerplate. Provide direct, high-signal explanations structured with sharp bullet points and practical code examples.",
+    createdAt: Date.now()
+  },
+  {
+    id: "skill_clinical_synthesizer",
+    name: "Scientific & Clinical Synthesizer",
+    description: "Evidence-based academic synthesis, structured critique, methodology analysis, and citation formatting.",
+    instructions: "Adopt an objective, evidence-based academic research persona. Synthesize scientific evidence, highlight methodology, ground claims systematically, critically assess limitations, and provide structured, peer-review-grade commentary.",
+    createdAt: Date.now()
+  }
+];
+
+async function initSkills() {
+  const stored = await idbGetAll(IDB_STORE_SKILLS);
+  if (!stored || stored.length === 0) {
+    for (const sk of DEFAULT_SKILLS) {
+      await idbPut(IDB_STORE_SKILLS, sk);
+    }
+    state.skills = [...DEFAULT_SKILLS];
+  } else {
+    state.skills = stored;
+  }
+  renderSkillsList();
+}
+
+function renderSkillsList() {
+  if (!DOM.skillsListContainer) return;
+  DOM.skillsListContainer.innerHTML = "";
+  if (DOM.savedSkillsCount) DOM.savedSkillsCount.textContent = state.skills.length;
+
+  if (state.skills.length === 0) {
+    DOM.skillsListContainer.innerHTML = `<div class="empty-hint" style="padding:20px; text-align:center; color:var(--text-muted);">No skills created yet. Use the "Create or Import Skill" tab above to add reusable AI instructions!</div>`;
+    return;
+  }
+
+  state.skills.forEach(skill => {
+    const isActive = state.activeSkill && state.activeSkill.id === skill.id;
+    const card = document.createElement("div");
+    card.className = `skill-card ${isActive ? "active" : ""}`;
+    card.innerHTML = `
+      <div class="skill-card-main">
+        <div class="skill-card-header">
+          <span class="skill-card-title">${escapeHTML(skill.name)}</span>
+          ${isActive ? `<span class="skill-active-badge">Active in Chat</span>` : ""}
+        </div>
+        <div class="skill-card-desc">${escapeHTML(skill.description || "Custom AI instructions")}</div>
+      </div>
+      <div class="skill-card-actions">
+        <button class="btn btn-sm ${isActive ? "btn-secondary" : "btn-primary"} skill-toggle-btn">
+          ${isActive ? "Deactivate" : "⚡ Activate"}
+        </button>
+        <button class="btn btn-sm btn-secondary skill-preview-btn" title="View Instructions">👁️ Preview</button>
+        <button class="icon-btn skill-delete-btn" title="Delete skill" style="color:var(--text-faint);">&times;</button>
+      </div>
+    `;
+
+    card.querySelector(".skill-toggle-btn").addEventListener("click", () => {
+      if (isActive) {
+        deactivateSkill();
+      } else {
+        activateSkill(skill);
+      }
+    });
+
+    card.querySelector(".skill-preview-btn").addEventListener("click", () => {
+      openPreviewModal("⚡", skill.name, `<pre style="white-space:pre-wrap; font-family:var(--font-mono); font-size:0.85rem;">${escapeHTML(skill.instructions)}</pre>`, skill);
+    });
+
+    card.querySelector(".skill-delete-btn").addEventListener("click", async () => {
+      if (confirm(`Delete skill "${skill.name}"?`)) {
+        await idbDelete(IDB_STORE_SKILLS, skill.id);
+        if (state.activeSkill && state.activeSkill.id === skill.id) {
+          deactivateSkill();
+        }
+        await initSkills();
+        showToast("Skill deleted", "info");
+      }
+    });
+
+    DOM.skillsListContainer.appendChild(card);
+  });
+}
+
+function activateSkill(skill) {
+  state.activeSkill = skill;
+  if (DOM.activeSkillComposerChip) {
+    DOM.activeSkillComposerChip.style.display = "inline-flex";
+    DOM.activeSkillComposerName.textContent = skill.name;
+  }
+  DOM.skillModal.classList.remove("open");
+  renderSkillsList();
+  showToast(`Activated skill: "${skill.name}"! Applied to upcoming chat responses.`, "success");
+}
+
+function deactivateSkill() {
+  state.activeSkill = null;
+  if (DOM.activeSkillComposerChip) {
+    DOM.activeSkillComposerChip.style.display = "none";
+  }
+  renderSkillsList();
+  showToast("Skill deactivated.", "info");
+}
+
+async function handleSkillFileInput(file) {
+  if (!file) return;
+
+  try {
+    let name = file.name.replace(/\.[^/.]+$/, "");
+    let description = "";
+    let instructions = "";
+
+    if (file.name.endsWith(".zip")) {
+      if (!window.JSZip) throw new Error("JSZip library not loaded");
+      const zip = await JSZip.loadAsync(file);
+      let skillFile = zip.file("SKILL.md") || zip.file("skill.md");
+      if (!skillFile) {
+        // Find any .md file
+        const mdFiles = Object.keys(zip.files).filter(k => k.endsWith(".md"));
+        if (mdFiles.length > 0) skillFile = zip.file(mdFiles[0]);
+      }
+      if (!skillFile) throw new Error("Could not find SKILL.md inside the ZIP archive.");
+      const text = await skillFile.async("text");
+      const parsed = parseSkillText(text, name);
+      name = parsed.name || name;
+      description = parsed.description || "";
+      instructions = parsed.instructions;
+    } else {
+      const text = await file.text();
+      const parsed = parseSkillText(text, name);
+      name = parsed.name || name;
+      description = parsed.description || "";
+      instructions = parsed.instructions;
+    }
+
+    DOM.newSkillNameInput.value = name;
+    DOM.newSkillDescInput.value = description;
+    DOM.newSkillInstructionsInput.value = instructions;
+
+    // Switch to create tab
+    DOM.tabNewSkill.click();
+    showToast(`Parsed skill "${name}". Review and click Save!`, "info");
+  } catch (err) {
+    showToast(`Failed to parse skill: ${err.message}`, "error");
+  }
+}
+
+function parseSkillText(text, fallbackName) {
+  let name = fallbackName;
+  let description = "";
+  let instructions = text;
+
+  // Frontmatter check: --- name: ... description: ... ---
+  const fmMatch = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
+  if (fmMatch) {
+    const yaml = fmMatch[1];
+    instructions = fmMatch[2].trim();
+    const nameMatch = yaml.match(/name:\s*["']?([^"'\n\r]+)["']?/i);
+    if (nameMatch) name = nameMatch[1].trim();
+    const descMatch = yaml.match(/description:\s*["']?([^"'\n\r]+)["']?/i);
+    if (descMatch) description = descMatch[1].trim();
+  } else {
+    // Heading check: # Name
+    const h1Match = text.match(/^#\s+(.+)$/m);
+    if (h1Match) name = h1Match[1].trim();
+  }
+
+  return { name, description, instructions: instructions.trim() };
+}
+
+async function saveCustomSkill() {
+  const name = DOM.newSkillNameInput.value.trim();
+  const desc = DOM.newSkillDescInput.value.trim();
+  const inst = DOM.newSkillInstructionsInput.value.trim();
+
+  if (!name || !inst) {
+    showToast("Please provide both a Skill Name and Instructions.", "error");
+    return;
+  }
+
+  const newSkill = {
+    id: "skill_" + Date.now() + "_" + Math.random().toString(36).substr(2, 4),
+    name: name,
+    description: desc || "Custom instruction set",
+    instructions: inst,
+    createdAt: Date.now()
+  };
+
+  await idbPut(IDB_STORE_SKILLS, newSkill);
+  await initSkills();
+
+  // Reset form & switch to list tab
+  DOM.newSkillNameInput.value = "";
+  DOM.newSkillDescInput.value = "";
+  DOM.newSkillInstructionsInput.value = "";
+  DOM.tabSavedSkills.click();
+
+  showToast(`Skill "${name}" saved to library!`, "success");
+}
+
+// ----------------------------------------------------------
+// Personal Library (Local-First Persistence & PC Sync)
+// ----------------------------------------------------------
+async function loadLibrary() {
+  const items = await idbGetAll(IDB_STORE_LIB);
+  state.libraryItems = items || [];
+
+  const counts = {
+    all: state.libraryItems.length,
+    document: 0,
+    image: 0,
+    skill: 0,
+    weblink: 0
+  };
+
+  state.libraryItems.forEach(i => {
+    if (counts[i.type] !== undefined) counts[i.type]++;
+  });
+
+  if (DOM.libCountAll) DOM.libCountAll.textContent = counts.all;
+  if (DOM.libCountDocs) DOM.libCountDocs.textContent = counts.document;
+  if (DOM.libCountPhotos) DOM.libCountPhotos.textContent = counts.image;
+  if (DOM.libCountSkills) DOM.libCountSkills.textContent = counts.skill;
+  if (DOM.libCountLinks) DOM.libCountLinks.textContent = counts.weblink;
+
+  if (DOM.librarySyncText) {
+    DOM.librarySyncText.textContent = state.dirHandle
+      ? `📁 PC Folder Linked: ${state.pcFolderName}`
+      : "Local Browser Storage (IndexedDB • 100% Private)";
+  }
+
+  renderLibraryGrid();
+}
+
+function renderLibraryGrid() {
+  if (!DOM.libraryGridContainer) return;
+  DOM.libraryGridContainer.innerHTML = "";
+
+  const query = (DOM.librarySearchInput.value || "").toLowerCase().trim();
+  const filter = state.activeLibFilter || "all";
+
+  const filtered = state.libraryItems.filter(item => {
+    if (filter !== "all" && item.type !== filter) return false;
+    if (query) {
+      const matchName = item.name && item.name.toLowerCase().includes(query);
+      const matchDesc = item.textContent && item.textContent.toLowerCase().includes(query);
+      const matchMeta = item.meta && item.meta.toLowerCase().includes(query);
+      if (!matchName && !matchDesc && !matchMeta) return false;
+    }
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    DOM.libraryGridContainer.innerHTML = `
+      <div style="grid-column: 1 / -1; padding: 36px 16px; text-align: center; color: var(--text-muted);">
+        <div style="font-size: 2rem; margin-bottom: 8px;">📚</div>
+        <p style="font-weight: 600; margin-bottom: 4px;">No library items found</p>
+        <span style="font-size: 0.8rem;">Attach documents, photos, links, or skills in the composer and click the 💾 save icon to store them here permanently!</span>
+      </div>
+    `;
+    return;
+  }
+
+  filtered.sort((a, b) => (b.savedAt || b.createdAt || 0) - (a.savedAt || a.createdAt || 0));
+
+  filtered.forEach(item => {
+    const card = document.createElement("div");
+    card.className = "lib-card";
+
+    let visual = "";
+    if (item.type === "image" && (item.previewUrl || item.base64Data)) {
+      visual = `<img src="${item.previewUrl || item.base64Data}" class="lib-card-img-thumb" alt="${escapeHTML(item.name)}">`;
+    } else {
+      const icon = item.type === "weblink" ? "🔗" : item.type === "skill" ? "⚡" : "📄";
+      visual = `<span class="lib-card-icon">${icon}</span>`;
+    }
+
+    card.innerHTML = `
+      <div class="lib-card-top">
+        ${visual}
+        <div class="lib-card-title-box">
+          <span class="lib-card-title" title="${escapeHTML(item.name)}">${escapeHTML(item.name)}</span>
+          <span class="lib-card-meta">${escapeHTML(item.meta || item.type)}</span>
+        </div>
+      </div>
+      <div class="lib-card-actions">
+        <button class="btn btn-sm btn-primary lib-attach-btn" title="Add to current chat">➕ Attach</button>
+        <button class="btn btn-sm btn-secondary lib-preview-btn" title="Preview item">👁️ View</button>
+        <button class="icon-btn lib-delete-btn" title="Delete from Library" style="color:var(--text-faint);">&times;</button>
+      </div>
+    `;
+
+    card.querySelector(".lib-attach-btn").addEventListener("click", () => {
+      attachLibraryItemToChat(item);
+    });
+
+    card.querySelector(".lib-preview-btn").addEventListener("click", () => {
+      previewLibraryItem(item);
+    });
+
+    card.querySelector(".lib-delete-btn").addEventListener("click", async () => {
+      if (confirm(`Remove "${item.name}" from your Personal Library?`)) {
+        await idbDelete(IDB_STORE_LIB, item.id);
+        await loadLibrary();
+        showToast("Item removed from library", "info");
+      }
+    });
+
+    DOM.libraryGridContainer.appendChild(card);
+  });
+}
+
+function attachLibraryItemToChat(item) {
+  // Clone item with fresh attachment ID
+  const attachment = {
+    ...item,
+    id: "att_lib_" + Date.now() + "_" + Math.random().toString(36).substr(2, 4)
+  };
+  state.attachments.push(attachment);
+  renderAttachmentsTray();
+  DOM.libraryModal.classList.remove("open");
+  showToast(`Attached "${item.name}" from Library!`, "success");
+}
+
+function previewLibraryItem(item) {
+  let contentHtml = "";
+  if (item.type === "image") {
+    contentHtml = `<div style="text-align:center;"><img src="${item.previewUrl || item.base64Data}" style="max-width:100%; max-height:480px; border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,0.3);"></div>`;
+  } else if (item.textContent) {
+    contentHtml = `<pre style="white-space:pre-wrap; font-family:var(--font-mono); font-size:0.84rem;">${escapeHTML(item.textContent)}</pre>`;
+  } else if (item.instructions) {
+    contentHtml = `<pre style="white-space:pre-wrap; font-family:var(--font-mono); font-size:0.84rem;">${escapeHTML(item.instructions)}</pre>`;
+  } else {
+    contentHtml = `<p>${escapeHTML(item.summary || "No preview content available.")}</p>`;
+  }
+
+  const icon = item.type === "image" ? "🖼️" : item.type === "weblink" ? "🔗" : item.type === "skill" ? "⚡" : "📄";
+  openPreviewModal(icon, item.name, contentHtml, item);
+}
+
+function openPreviewModal(icon, title, bodyHtml, itemToAttach = null) {
+  DOM.previewModalIcon.textContent = icon;
+  DOM.previewModalTitle.textContent = title;
+  DOM.previewModalBody.innerHTML = bodyHtml;
+  state.previewPendingItem = itemToAttach;
+
+  if (itemToAttach) {
+    DOM.previewAttachToChatBtn.style.display = "inline-block";
+  } else {
+    DOM.previewAttachToChatBtn.style.display = "none";
+  }
+
+  DOM.itemPreviewModal.classList.add("open");
+}
+
+async function syncLibraryToPCFolder() {
+  if (!state.dirHandle) {
+    await selectPCFolder();
+    if (!state.dirHandle) return;
+  }
+
+  try {
+    const hasPerm = await verifyPermission(state.dirHandle);
+    if (!hasPerm) {
+      showToast("Storage permission not granted for PC folder.", "error");
+      return;
+    }
+
+    const libFolder = await state.dirHandle.getDirectoryHandle("Library", { create: true });
+    let count = 0;
+
+    for (const item of state.libraryItems) {
+      const safeTitle = (item.name || "item").replace(/[^a-z0-9_\-\.]/gi, "_").slice(0, 40);
+
+      if (item.type === "image" && item.base64Data) {
+        // Convert base64 to Blob
+        const parts = item.base64Data.split(";base64,");
+        const contentType = parts[0].replace("data:", "") || "image/jpeg";
+        const byteCharacters = atob(parts[1] || "");
+        const byteArrays = [];
+        for (let offset = 0; offset < byteCharacters.length; offset += 512) {
+          const slice = byteCharacters.slice(offset, offset + 512);
+          const byteNumbers = new Array(slice.length);
+          for (let i = 0; i < slice.length; i++) {
+            byteNumbers[i] = slice.charCodeAt(i);
+          }
+          byteArrays.push(new Uint8Array(byteNumbers));
+        }
+        const blob = new Blob(byteArrays, { type: contentType });
+        const ext = contentType.includes("png") ? "png" : "jpg";
+        const fileHandle = await libFolder.getFileHandle(`${safeTitle}.${ext}`, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        count++;
+      } else {
+        const textToSave = item.textContent || item.instructions || item.url || "";
+        const ext = item.type === "skill" ? "md" : "txt";
+        const fileHandle = await libFolder.getFileHandle(`${safeTitle}.${ext}`, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(textToSave);
+        await writable.close();
+        count++;
+      }
+    }
+
+    showToast(`Successfully synced ${count} items to your PC folder (Library/)!`, "success");
+  } catch (err) {
+    showToast(`PC Sync failed: ${err.message}`, "error");
+  }
+}
+
+// ==========================================================
 // CONVERSATIONS MANAGEMENT (LocalStorage + PC Auto-Save)
 // ==========================================================
 function loadSavedChats() {
@@ -879,12 +1815,37 @@ function appendMessageElement(msg, index) {
     `;
   }
 
-  const contentHtml = isUser ? escapeHTML(msg.content) : renderMarkdown(msg.content);
+  // Render attachment chips or image previews in user message bubble
+  let attachmentsHtml = "";
+  if (isUser && msg.attachments && msg.attachments.length > 0) {
+    let chips = "";
+    msg.attachments.forEach(att => {
+      if (att.type === "image" && (att.previewUrl || att.base64Data)) {
+        chips += `<img src="${att.previewUrl || att.base64Data}" class="msg-attached-img" alt="${escapeHTML(att.name)}" title="${escapeHTML(att.name)}" data-preview="true">`;
+      } else {
+        const icon = att.type === "weblink" ? "🔗" : att.type === "skill" ? "⚡" : "📄";
+        chips += `<span class="msg-attachment-badge"><span>${icon}</span><span>${escapeHTML(att.name)}</span></span>`;
+      }
+    });
+    attachmentsHtml = `<div class="msg-attachments-container">${chips}</div>`;
+  }
+
+  // User text or display text
+  let userText = "";
+  if (typeof msg.content === "string") {
+    userText = msg.displayContent || msg.content;
+  } else if (Array.isArray(msg.content)) {
+    const textPart = msg.content.find(p => p.type === "text");
+    userText = msg.displayContent || (textPart ? textPart.text : "");
+  }
+
+  const contentHtml = isUser ? escapeHTML(userText) : renderMarkdown(msg.content);
 
   row.innerHTML = `
     ${avatar}
     <div class="message-bubble-wrapper">
       <div class="message-bubble">
+        ${attachmentsHtml}
         ${reasoningHtml}
         <div class="bubble-text">${contentHtml}</div>
       </div>
@@ -905,6 +1866,13 @@ function appendMessageElement(msg, index) {
       </div>
     </div>
   `;
+
+  // Attach click listener on user message attached images to preview full-screen
+  row.querySelectorAll(".msg-attached-img").forEach(img => {
+    img.addEventListener("click", () => {
+      openPreviewModal("🖼️ Photo", img.title || "Photo", `<div style="text-align:center;"><img src="${img.src}" style="max-width:100%; border-radius:8px;"></div>`);
+    });
+  });
 
   // Attach reasoning accordion toggle
   const reasonHeader = row.querySelector(".reasoning-header");
@@ -980,23 +1948,85 @@ function speakText(text, btn) {
 // ==========================================================
 async function sendMessage() {
   const text = DOM.chatInput.value.trim();
-  if (!text || state.isGenerating) return;
+  const hasAttachments = state.attachments.length > 0;
+  if ((!text && !hasAttachments) || state.isGenerating) return;
 
   const currentChat = state.chats[state.currentChatId];
   if (!currentChat) return;
 
+  // Check if photos/images are attached
+  const photoAttachments = state.attachments.filter(a => a.type === "image");
+  if (photoAttachments.length > 0) {
+    const activeModelObj = state.models.find(m => m.id === state.activeModel);
+    const supportsVision = activeModelObj ? !!activeModelObj.supportsVision : (state.activeModel.includes("gemini") || state.activeModel.includes("vision"));
+
+    if (!supportsVision) {
+      const switchVision = confirm(
+        `The active model (${state.activeModel}) does not support image analysis.\n\nWould you like to switch to Gemini 2.0 Flash (Fast & Vision Capable) to analyze your ${photoAttachments.length} image(s)?`
+      );
+      if (switchVision) {
+        selectModel("gemini-2.0-flash");
+      } else {
+        showToast("Please switch to a vision model (e.g. Gemini 2.0 Flash) or remove images.", "warning");
+        return;
+      }
+    }
+  }
+
+  // Build combined text with document & weblink context
+  let contextDocs = "";
+  const docAttachments = state.attachments.filter(a => a.type === "document");
+  if (docAttachments.length > 0) {
+    contextDocs += "--- [ATTACHED DOCUMENTS] ---\n";
+    docAttachments.forEach(d => {
+      contextDocs += `\n[Document: ${d.name}]\n${d.textContent}\n`;
+    });
+  }
+
+  const linkAttachments = state.attachments.filter(a => a.type === "weblink");
+  if (linkAttachments.length > 0) {
+    contextDocs += "\n--- [ATTACHED WEBSITES] ---\n";
+    linkAttachments.forEach(l => {
+      contextDocs += `\n[URL: ${l.url}]\n${l.instruction ? `Instruction: ${l.instruction}\n` : ""}Content:\n${l.textContent}\n`;
+    });
+  }
+
+  const promptText = (contextDocs ? contextDocs + "\n\n--- [USER QUESTION] ---\n" : "") + (text || "Please review and process the attached files.");
+
+  // Multimodal structure if images are attached
+  let userMessageContent = promptText;
+  if (photoAttachments.length > 0) {
+    userMessageContent = [
+      { type: "text", text: promptText },
+      ...photoAttachments.map(img => ({
+        type: "image_url",
+        image_url: { url: img.base64Data }
+      }))
+    ];
+  }
+
+  const attachmentsSnapshot = [...state.attachments];
+
   // Add User Message
-  const userMsg = { role: "user", content: text };
+  const userMsg = {
+    role: "user",
+    content: userMessageContent,
+    displayContent: text || `[Attached ${attachmentsSnapshot.length} file(s)]`,
+    attachments: attachmentsSnapshot
+  };
   currentChat.messages.push(userMsg);
 
   // Auto-generate title if first message
   if (currentChat.messages.length === 1) {
-    currentChat.title = text.slice(0, 32) + (text.length > 32 ? "..." : "");
+    const titleBase = text || attachmentsSnapshot[0]?.name || "New Conversation";
+    currentChat.title = titleBase.slice(0, 32) + (titleBase.length > 32 ? "..." : "");
   }
 
-  // Clear input
+  // Clear input & attachments
   DOM.chatInput.value = "";
   DOM.chatInput.style.height = "auto";
+  state.attachments = [];
+  renderAttachmentsTray();
   DOM.sendBtn.disabled = true;
 
   // Render user message
@@ -1046,6 +2076,7 @@ async function sendMessage() {
         messages: currentChat.messages.slice(0, -1).map(m => ({ role: m.role, content: m.content })),
         model: state.activeModel,
         systemPrompt: state.systemPrompt,
+        skillPrompt: state.activeSkill ? state.activeSkill.instructions : "",
         temperature: state.temperature,
         apiKey: state.apiKey
       }),
@@ -1132,7 +2163,7 @@ async function sendMessage() {
     clearInterval(timerInterval);
     state.isGenerating = false;
     DOM.generatingBar.style.display = "none";
-    DOM.sendBtn.disabled = DOM.chatInput.value.trim().length === 0;
+    DOM.sendBtn.disabled = DOM.chatInput.value.trim().length === 0 && state.attachments.length === 0;
     saveChatsToStorage();
     scrollToBottom();
   }
@@ -1230,7 +2261,7 @@ function initEvents() {
   DOM.chatInput.addEventListener("input", () => {
     DOM.chatInput.style.height = "auto";
     DOM.chatInput.style.height = Math.min(DOM.chatInput.scrollHeight, 180) + "px";
-    DOM.sendBtn.disabled = DOM.chatInput.value.trim().length === 0 || state.isGenerating;
+    DOM.sendBtn.disabled = (DOM.chatInput.value.trim().length === 0 && state.attachments.length === 0) || state.isGenerating;
   });
 
   DOM.chatInput.addEventListener("keydown", (e) => {
@@ -1446,11 +2477,216 @@ function initEvents() {
   // Export Chat
   DOM.exportChatBtn.addEventListener("click", exportConversation);
 
-  // User PC Local Storage Folder
+  // PC Local Storage Folder
   if (DOM.selectPcFolderBtn) DOM.selectPcFolderBtn.addEventListener("click", selectPCFolder);
   if (DOM.modalSelectFolderBtn) DOM.modalSelectFolderBtn.addEventListener("click", selectPCFolder);
   if (DOM.modalSyncNowBtn) DOM.modalSyncNowBtn.addEventListener("click", saveAllChatsToPC);
   if (DOM.modalLoadFromPcBtn) DOM.modalLoadFromPcBtn.addEventListener("click", importChatsFromPC);
+
+  // ==========================================================
+  // ATTACHMENTS & "+" MENU EVENT LISTENERS
+  // ==========================================================
+
+  // "+" Attachment Menu Toggle
+  if (DOM.attachMenuBtn) {
+    DOM.attachMenuBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const isOpen = DOM.attachMenuPopup.classList.toggle("open");
+      DOM.attachMenuBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    });
+  }
+
+  // Close menus on outside click or Escape key
+  document.addEventListener("click", (e) => {
+    if (DOM.attachMenuContainer && !DOM.attachMenuContainer.contains(e.target)) {
+      DOM.attachMenuPopup.classList.remove("open");
+      DOM.attachMenuBtn.setAttribute("aria-expanded", "false");
+    }
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      if (DOM.attachMenuPopup) {
+        DOM.attachMenuPopup.classList.remove("open");
+        DOM.attachMenuBtn.setAttribute("aria-expanded", "false");
+      }
+      if (state.cameraStream) {
+        closeCameraModal();
+      }
+    }
+  });
+
+  // Action 1: Upload Files
+  if (DOM.actionUploadFiles) {
+    DOM.actionUploadFiles.addEventListener("click", () => {
+      DOM.attachMenuPopup.classList.remove("open");
+      DOM.filePickerInput.click();
+    });
+  }
+  if (DOM.filePickerInput) {
+    DOM.filePickerInput.addEventListener("change", (e) => {
+      handleDocumentFiles(e.target.files);
+      e.target.value = "";
+    });
+  }
+
+  // Action 2: Upload Photos
+  if (DOM.actionUploadPhotos) {
+    DOM.actionUploadPhotos.addEventListener("click", () => {
+      DOM.attachMenuPopup.classList.remove("open");
+      DOM.photoPickerInput.click();
+    });
+  }
+  if (DOM.photoPickerInput) {
+    DOM.photoPickerInput.addEventListener("change", (e) => {
+      handlePhotoFiles(e.target.files);
+      e.target.value = "";
+    });
+  }
+
+  // Action 3: Add a Skill
+  if (DOM.actionAddSkill) {
+    DOM.actionAddSkill.addEventListener("click", () => {
+      DOM.attachMenuPopup.classList.remove("open");
+      DOM.skillModal.classList.add("open");
+    });
+  }
+
+  // Action 4: Take a Photo
+  if (DOM.actionTakePhoto) {
+    DOM.actionTakePhoto.addEventListener("click", () => {
+      DOM.attachMenuPopup.classList.remove("open");
+      openCameraModal();
+    });
+  }
+
+  // Action 5: Add a Website Link
+  if (DOM.actionAddWebLink) {
+    DOM.actionAddWebLink.addEventListener("click", () => {
+      DOM.attachMenuPopup.classList.remove("open");
+      DOM.webLinkStatusBox.style.display = "none";
+      DOM.webLinkModal.classList.add("open");
+    });
+  }
+
+  // Action 6 & Sidebar: Personal Library
+  if (DOM.actionOpenLibrary) {
+    DOM.actionOpenLibrary.addEventListener("click", () => {
+      DOM.attachMenuPopup.classList.remove("open");
+      loadLibrary();
+      DOM.libraryModal.classList.add("open");
+    });
+  }
+  if (DOM.openLibraryBtn) {
+    DOM.openLibraryBtn.addEventListener("click", () => {
+      loadLibrary();
+      DOM.libraryModal.classList.add("open");
+    });
+  }
+
+  // Clear Active Skill Composer Chip
+  if (DOM.clearActiveSkillBtn) {
+    DOM.clearActiveSkillBtn.addEventListener("click", deactivateSkill);
+  }
+
+  // Camera Controls
+  if (DOM.capturePhotoBtn) DOM.capturePhotoBtn.addEventListener("click", captureCameraPhoto);
+  if (DOM.retakePhotoBtn) DOM.retakePhotoBtn.addEventListener("click", retakeCameraPhoto);
+  if (DOM.usePhotoBtn) DOM.usePhotoBtn.addEventListener("click", useCapturedPhoto);
+
+  // Close Camera tracks when modal close button clicked
+  document.querySelectorAll('[data-close="cameraModal"]').forEach(btn => {
+    btn.addEventListener("click", closeCameraModal);
+  });
+
+  // Website Link Fetch
+  if (DOM.fetchAndAttachUrlBtn) {
+    DOM.fetchAndAttachUrlBtn.addEventListener("click", fetchAndAttachWebLink);
+  }
+
+  // Skills Tabs
+  if (DOM.tabSavedSkills && DOM.tabNewSkill) {
+    DOM.tabSavedSkills.addEventListener("click", () => {
+      DOM.tabSavedSkills.classList.add("active");
+      DOM.tabNewSkill.classList.remove("active");
+      DOM.contentSavedSkills.style.display = "block";
+      DOM.contentNewSkill.style.display = "none";
+      renderSkillsList();
+    });
+
+    DOM.tabNewSkill.addEventListener("click", () => {
+      DOM.tabNewSkill.classList.add("active");
+      DOM.tabSavedSkills.classList.remove("active");
+      DOM.contentNewSkill.style.display = "block";
+      DOM.contentSavedSkills.style.display = "none";
+    });
+  }
+
+  // Skill File Import & Dropzone
+  if (DOM.browseSkillFileBtn) {
+    DOM.browseSkillFileBtn.addEventListener("click", () => {
+      DOM.skillImportInput.click();
+    });
+  }
+  if (DOM.skillImportInput) {
+    DOM.skillImportInput.addEventListener("change", (e) => {
+      if (e.target.files && e.target.files[0]) {
+        handleSkillFileInput(e.target.files[0]);
+      }
+      e.target.value = "";
+    });
+  }
+  if (DOM.skillImportDropzone) {
+    DOM.skillImportDropzone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      DOM.skillImportDropzone.classList.add("dragover");
+    });
+    DOM.skillImportDropzone.addEventListener("dragleave", () => {
+      DOM.skillImportDropzone.classList.remove("dragover");
+    });
+    DOM.skillImportDropzone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      DOM.skillImportDropzone.classList.remove("dragover");
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) {
+        handleSkillFileInput(e.dataTransfer.files[0]);
+      }
+    });
+  }
+
+  // Save Custom Skill
+  if (DOM.saveNewSkillBtn) {
+    DOM.saveNewSkillBtn.addEventListener("click", saveCustomSkill);
+  }
+
+  // Personal Library Search & Filters
+  if (DOM.librarySearchInput) {
+    DOM.librarySearchInput.addEventListener("input", renderLibraryGrid);
+  }
+
+  if (DOM.libraryFilterPills) {
+    DOM.libraryFilterPills.querySelectorAll(".filter-pill").forEach(pill => {
+      pill.addEventListener("click", () => {
+        DOM.libraryFilterPills.querySelectorAll(".filter-pill").forEach(p => p.classList.remove("active"));
+        pill.classList.add("active");
+        state.activeLibFilter = pill.getAttribute("data-filter") || "all";
+        renderLibraryGrid();
+      });
+    });
+  }
+
+  if (DOM.librarySyncPcBtn) {
+    DOM.librarySyncPcBtn.addEventListener("click", syncLibraryToPCFolder);
+  }
+
+  // Preview Modal Attach to Chat
+  if (DOM.previewAttachToChatBtn) {
+    DOM.previewAttachToChatBtn.addEventListener("click", () => {
+      if (state.previewPendingItem) {
+        attachLibraryItemToChat(state.previewPendingItem);
+        DOM.itemPreviewModal.classList.remove("open");
+      }
+    });
+  }
 }
 
 function openSettingsModal() {
@@ -1490,6 +2726,8 @@ document.addEventListener("DOMContentLoaded", () => {
   setupMarkdown();
   initEvents();
   initPCFolder();
+  initSkills();
+  loadLibrary();
   fetchModels();
   loadSavedChats();
 });

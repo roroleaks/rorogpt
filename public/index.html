@@ -22,6 +22,11 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
 
+  <!-- Client-Side Document, Image & Skill Parsers (PDF.js, Mammoth DOCX, JSZip) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
   <!-- Main Style -->
   <link rel="stylesheet" href="/style.css">
 </head>
@@ -94,6 +99,10 @@
         </div>
 
         <div class="footer-links">
+          <button class="footer-btn" id="openLibraryBtn" title="Personal Library (Skills, Docs, Photos)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+            <span>Library</span>
+          </button>
           <button class="footer-btn" id="openSettingsBtn" title="Settings">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
             <span>Settings</span>
@@ -268,7 +277,10 @@
         </div>
 
         <!-- Chat Input Form -->
-        <div class="input-wrapper">
+        <div class="input-wrapper" id="inputWrapper">
+          <!-- Attachments Preview Tray -->
+          <div class="attachments-tray" id="attachmentsTray" style="display: none;"></div>
+
           <textarea 
             id="chatInput" 
             placeholder="Message RoroGPT... (Shift + Enter for new line)" 
@@ -277,11 +289,96 @@
 
           <div class="input-actions-bar">
             <div class="input-left-tools">
+              <!-- + Attachment Menu (ChatGPT style) -->
+              <div class="attach-menu-container" id="attachMenuContainer">
+                <button class="tool-btn attach-menu-btn" id="attachMenuBtn" type="button" title="Attach file, photo, skill, camera, or link" aria-haspopup="true" aria-expanded="false">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                </button>
+
+                <!-- Attachment Popup Menu -->
+                <div class="attach-popup-menu" id="attachMenuPopup" role="menu" aria-label="Attachment options">
+                  <button class="attach-opt" id="actionUploadFiles" role="menuitem">
+                    <span class="attach-opt-icon file-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                    </span>
+                    <div class="attach-opt-text">
+                      <span class="attach-opt-title">Upload files</span>
+                      <span class="attach-opt-sub">PDF, DOCX, TXT, Code, CSV, JSON</span>
+                    </div>
+                  </button>
+
+                  <button class="attach-opt" id="actionUploadPhotos" role="menuitem">
+                    <span class="attach-opt-icon photo-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                    </span>
+                    <div class="attach-opt-text">
+                      <span class="attach-opt-title">Upload photos</span>
+                      <span class="attach-opt-sub">JPG, PNG, WebP image analysis</span>
+                    </div>
+                  </button>
+
+                  <button class="attach-opt" id="actionAddSkill" role="menuitem">
+                    <span class="attach-opt-icon skill-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                    </span>
+                    <div class="attach-opt-text">
+                      <span class="attach-opt-title">Add a skill</span>
+                      <span class="attach-opt-sub">Import or create reusable AI instructions</span>
+                    </div>
+                  </button>
+
+                  <button class="attach-opt" id="actionTakePhoto" role="menuitem">
+                    <span class="attach-opt-icon camera-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+                    </span>
+                    <div class="attach-opt-text">
+                      <span class="attach-opt-title">Take a photo</span>
+                      <span class="attach-opt-sub">Capture directly from your camera</span>
+                    </div>
+                  </button>
+
+                  <button class="attach-opt" id="actionAddWebLink" role="menuitem">
+                    <span class="attach-opt-icon link-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+                    </span>
+                    <div class="attach-opt-text">
+                      <span class="attach-opt-title">Add a website link</span>
+                      <span class="attach-opt-sub">Extract and summarize live URL article</span>
+                    </div>
+                  </button>
+
+                  <div class="attach-menu-divider"></div>
+
+                  <button class="attach-opt library-opt" id="actionOpenLibrary" role="menuitem">
+                    <span class="attach-opt-icon library-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+                    </span>
+                    <div class="attach-opt-text">
+                      <span class="attach-opt-title">Personal Library</span>
+                      <span class="attach-opt-sub">Local saved skills, documents & photos</span>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Hidden File Pickers -->
+              <input type="file" id="filePickerInput" multiple style="display:none;" accept=".pdf,.docx,.doc,.txt,.md,.markdown,.csv,.json,.py,.js,.ts,.jsx,.tsx,.html,.css,.scss,.json5,.xml,.yaml,.yml,.c,.cpp,.h,.java,.sh,.bash,.sql,.rtf,.log">
+              <input type="file" id="photoPickerInput" multiple style="display:none;" accept="image/jpeg,image/png,image/webp,image/gif">
+              <input type="file" id="skillImportInput" style="display:none;" accept=".md,.txt,.zip">
+
+              <!-- Active Skill Chip (in composer when skill is active) -->
+              <span class="active-skill-composer-chip" id="activeSkillComposerChip" style="display: none;" title="Active Skill instructions applied to this chat">
+                <span class="skill-chip-icon">⚡</span>
+                <span class="skill-chip-name" id="activeSkillComposerName">Skill</span>
+                <button class="skill-chip-clear-btn" id="clearActiveSkillBtn" title="Deactivate skill">&times;</button>
+              </span>
+
               <!-- Quick model tag display -->
               <span class="input-model-chip" id="inputModelChip" title="Click to change model">
                 <span class="chip-dot"></span>
                 <span class="chip-name">Llama 3.3 70B</span>
               </span>
+
               <!-- Sound SFX toggle -->
               <button class="tool-btn" id="sfxToggleBtn" title="Toggle Sound SFX">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="sfxIcon"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
@@ -501,6 +598,208 @@
 
       <div class="modal-footer">
         <button class="btn btn-primary" data-close="embeddingsModal">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Take a Photo (Live Camera) -->
+  <div class="modal-backdrop" id="cameraModal">
+    <div class="modal-dialog modal-camera">
+      <div class="modal-header">
+        <div class="modal-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+          <span>Take a Photo</span>
+        </div>
+        <button class="icon-btn close-modal-btn" data-close="cameraModal">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="camera-viewport-box" id="cameraViewportBox">
+          <video id="cameraVideo" autoplay playsinline muted></video>
+          <canvas id="cameraCanvas" style="display: none;"></canvas>
+          <img id="cameraSnapshotPreview" style="display: none;" alt="Captured preview">
+          <div class="camera-error-banner" id="cameraErrorBanner" style="display: none;"></div>
+        </div>
+      </div>
+
+      <div class="modal-footer camera-footer">
+        <!-- Live stream controls -->
+        <div class="camera-live-controls" id="cameraLiveControls">
+          <button class="btn btn-secondary" data-close="cameraModal">Cancel</button>
+          <button class="btn btn-primary capture-btn" id="capturePhotoBtn">
+            <span class="shutter-circle"></span>
+            <span>Capture Photo</span>
+          </button>
+        </div>
+        <!-- Snapshot review controls -->
+        <div class="camera-review-controls" id="cameraReviewControls" style="display: none;">
+          <button class="btn btn-secondary" id="retakePhotoBtn">Retake</button>
+          <button class="btn btn-primary" id="usePhotoBtn">Use Photo in Chat</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Add a Website Link -->
+  <div class="modal-backdrop" id="webLinkModal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div class="modal-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+          <span>Add a Website Link</span>
+        </div>
+        <button class="icon-btn close-modal-btn" data-close="webLinkModal">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="webLinkUrlInput" class="form-label">Website URL</label>
+          <input type="url" id="webLinkUrlInput" class="form-input" placeholder="https://example.com/article-or-documentation" autocomplete="off">
+          <span class="form-hint">Only public HTTP/HTTPS URLs are supported. Localhost and private IPs are blocked for security.</span>
+        </div>
+
+        <div class="form-group">
+          <label for="webLinkInstructionInput" class="form-label">Optional AI Instruction</label>
+          <input type="text" id="webLinkInstructionInput" class="form-input" placeholder="e.g. Summarize main findings, extract statistics, critique logic...">
+        </div>
+
+        <!-- Live retrieval feedback -->
+        <div class="weblink-status-box" id="webLinkStatusBox" style="display: none;"></div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-close="webLinkModal">Cancel</button>
+        <button class="btn btn-primary" id="fetchAndAttachUrlBtn">
+          <span>Fetch & Attach to Chat</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Add & Manage Skills -->
+  <div class="modal-backdrop" id="skillModal">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-header">
+        <div class="modal-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+          <span>AI Skills & Reusable Instructions</span>
+        </div>
+        <button class="icon-btn close-modal-btn" data-close="skillModal">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Sub-tabs -->
+        <div class="modal-tab-bar">
+          <button class="modal-tab-btn active" id="tabSavedSkills">⚡ Saved Skills (<span id="savedSkillsCount">0</span>)</button>
+          <button class="modal-tab-btn" id="tabNewSkill">➕ Create or Import Skill</button>
+        </div>
+
+        <!-- Tab 1: Saved Skills List -->
+        <div class="skill-tab-content" id="contentSavedSkills">
+          <div class="skills-list" id="skillsListContainer"></div>
+        </div>
+
+        <!-- Tab 2: Create / Import Skill -->
+        <div class="skill-tab-content" id="contentNewSkill" style="display: none;">
+          <div class="skill-import-dropzone" id="skillImportDropzone">
+            <span class="dropzone-icon">📦</span>
+            <div class="dropzone-text">
+              <strong>Import from file</strong>
+              <span>Drop a <code>.md</code>, <code>.txt</code>, or <code>.zip</code> package containing a <code>SKILL.md</code></span>
+            </div>
+            <button class="btn btn-secondary btn-sm" id="browseSkillFileBtn" type="button">Browse File</button>
+          </div>
+
+          <div class="form-group" style="margin-top: 14px;">
+            <label for="newSkillNameInput" class="form-label">Skill Name *</label>
+            <input type="text" id="newSkillNameInput" class="form-input" placeholder="e.g. Python FastAPI Architect, Clinical Summarizer...">
+          </div>
+
+          <div class="form-group">
+            <label for="newSkillDescInput" class="form-label">Short Description</label>
+            <input type="text" id="newSkillDescInput" class="form-input" placeholder="e.g. Enforces type hints, Pydantic v2 validation, and clean async structure">
+          </div>
+
+          <div class="form-group">
+            <label for="newSkillInstructionsInput" class="form-label">Instructions / System Prompt *</label>
+            <textarea id="newSkillInstructionsInput" class="form-input code-font" rows="7" placeholder="Define the persona, constraints, rules, output format, and guidelines for this skill..."></textarea>
+            <span class="form-hint">These instructions will guide the AI when this skill is activated. Untrusted executable code is not executed.</span>
+          </div>
+
+          <div class="form-actions-right">
+            <button class="btn btn-primary" id="saveNewSkillBtn" type="button">💾 Save Skill to Library</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-close="skillModal">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Personal Library -->
+  <div class="modal-backdrop" id="libraryModal">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-header">
+        <div class="modal-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+          <span>Personal Library (Local-First)</span>
+        </div>
+        <button class="icon-btn close-modal-btn" data-close="libraryModal">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="library-toolbar">
+          <div class="library-search-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="text" id="librarySearchInput" placeholder="Search saved documents, photos, skills...">
+          </div>
+
+          <div class="library-filter-pills" id="libraryFilterPills">
+            <button class="filter-pill active" data-filter="all">All (<span id="libCountAll">0</span>)</button>
+            <button class="filter-pill" data-filter="document">📄 Docs (<span id="libCountDocs">0</span>)</button>
+            <button class="filter-pill" data-filter="image">🖼️ Photos (<span id="libCountPhotos">0</span>)</button>
+            <button class="filter-pill" data-filter="skill">⚡ Skills (<span id="libCountSkills">0</span>)</button>
+            <button class="filter-pill" data-filter="weblink">🔗 Links (<span id="libCountLinks">0</span>)</button>
+          </div>
+        </div>
+
+        <!-- PC Folder Sync Bar -->
+        <div class="library-pc-sync-bar">
+          <div class="sync-info">
+            <span class="sync-dot" id="librarySyncDot"></span>
+            <span class="sync-text" id="librarySyncText">Local Browser Storage (IndexedDB)</span>
+          </div>
+          <button class="btn btn-secondary btn-sm" id="librarySyncPcBtn" title="Sync all library items to your connected PC folder">
+            📁 Sync to PC Folder
+          </button>
+        </div>
+
+        <!-- Library Items Grid -->
+        <div class="library-grid" id="libraryGridContainer"></div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-close="libraryModal">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Item Full Preview -->
+  <div class="modal-backdrop" id="itemPreviewModal">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-header">
+        <div class="modal-title">
+          <span id="previewModalIcon">📄</span>
+          <span id="previewModalTitle">Item Preview</span>
+        </div>
+        <button class="icon-btn close-modal-btn" data-close="itemPreviewModal">&times;</button>
+      </div>
+      <div class="modal-body preview-body" id="previewModalBody"></div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-close="itemPreviewModal">Close</button>
+        <button class="btn btn-primary" id="previewAttachToChatBtn">Attach to Current Chat</button>
       </div>
     </div>
   </div>

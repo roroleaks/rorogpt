@@ -45,7 +45,20 @@ export const FREE_MODELS_BY_PROVIDER = {
       color: "#06b6d4",
       icon: "✨",
       context: "4K",
+      supportsVision: false,
       description: "100% Free on Groq. Specialized multilingual instruction model with exceptional Arabic & English fluency."
+    },
+    {
+      id: "llama-3.2-11b-vision-preview",
+      name: "Llama 3.2 11B Vision (Groq)",
+      provider: "groq",
+      speed: "👁️ 300 tok/s (~0.3s)",
+      badge: "Vision AI",
+      color: "#ec4899",
+      icon: "🖼️",
+      context: "128K",
+      supportsVision: true,
+      description: "100% Free on Groq. Meta's multimodal vision model capable of inspecting and describing images and charts."
     }
   ],
   gemini: [
@@ -58,7 +71,8 @@ export const FREE_MODELS_BY_PROVIDER = {
       color: "#10b981",
       icon: "⚡",
       context: "1M",
-      description: "100% Free at Google AI Studio (1,500 req/day). Sub-second response time with giant 1M context."
+      supportsVision: true,
+      description: "100% Free at Google AI Studio (1,500 req/day). Sub-second response time with giant 1M context and native multimodal vision."
     },
     {
       id: "gemini-1.5-flash",
@@ -69,7 +83,8 @@ export const FREE_MODELS_BY_PROVIDER = {
       color: "#06b6d4",
       icon: "✨",
       context: "1M",
-      description: "100% Free at Google AI Studio. Fast multimodal assistant with reliable performance."
+      supportsVision: true,
+      description: "100% Free at Google AI Studio. Fast multimodal assistant with reliable performance and image understanding."
     }
   ],
   cerebras: [
