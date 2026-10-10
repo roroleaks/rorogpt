@@ -47,7 +47,9 @@ function enhanceResponse(res) {
   return res;
 }
 
-// Parse request body
+export const MAX_BODY_BYTES = 2 * 1024 * 1024; // 2 MB body limit
+
+// Parse request body safely with size limit
 function parseBody(req) {
   if (req.body !== undefined && req.body !== null) {
     if (typeof req.body === "string") {
@@ -59,15 +61,29 @@ function parseBody(req) {
     }
     return Promise.resolve(req.body);
   }
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let raw = "";
-    req.on("data", chunk => { raw += chunk; });
+    let byteCount = 0;
+    req.on("data", chunk => {
+      byteCount += chunk.length;
+      if (byteCount > MAX_BODY_BYTES) {
+        const err = new Error("Payload Too Large: request body exceeds 2 MB limit");
+        err.statusCode = 413;
+        req.destroy(err);
+        reject(err);
+        return;
+      }
+      raw += chunk;
+    });
     req.on("end", () => {
       try {
         resolve(raw ? JSON.parse(raw) : {});
       } catch {
         resolve(raw);
       }
+    });
+    req.on("error", (err) => {
+      reject(err);
     });
   });
 }
@@ -81,24 +97,32 @@ export async function requestHandler(req, res) {
   const url = new URL(req.url, `${protocol}://${host}`);
   const pathname = url.pathname;
 
+  // Handle body parsing safely for API routes
+  if (pathname.startsWith("/api/")) {
+    try {
+      req.body = await parseBody(req);
+    } catch (err) {
+      if (err.statusCode === 413) {
+        return res.status(413).json({ error: "Payload Too Large: request body exceeds 2 MB limit." });
+      }
+      return res.status(400).json({ error: "Invalid request payload." });
+    }
+  }
+
   // API Routes
   if (pathname === "/api/chat") {
-    req.body = await parseBody(req);
     return chatHandler(req, res);
   }
 
   if (pathname === "/api/models") {
-    req.body = await parseBody(req);
     return modelsHandler(req, res);
   }
 
   if (pathname === "/api/embeddings") {
-    req.body = await parseBody(req);
     return embeddingsHandler(req, res);
   }
 
   if (pathname === "/api/fetch-url") {
-    req.body = await parseBody(req);
     return fetchUrlHandler(req, res);
   }
 
@@ -110,7 +134,13 @@ export async function requestHandler(req, res) {
 
   let filePath = path.join(PUBLIC_DIR, safePath);
 
-  // If path doesn't exist, try appending .html or fallback to index.html
+  // If path has a file extension and does not exist -> 404 File Not Found
+  const rawExt = path.extname(safePath).toLowerCase();
+  if (rawExt && !fs.existsSync(filePath)) {
+    return res.status(404).json({ error: "File not found" });
+  }
+
+  // If path doesn't exist, try appending .html or fallback to index.html for SPA routes
   if (!fs.existsSync(filePath)) {
     if (fs.existsSync(filePath + ".html")) {
       filePath = filePath + ".html";

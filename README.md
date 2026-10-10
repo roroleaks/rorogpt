@@ -140,12 +140,37 @@ All responses automatically include:
 
 ---
 
-## 🧪 Testing
+## 🧪 Automated Testing
 
-Run the automated test suite verifying static assets, layout, free models, vector embeddings, streaming guards, and security access boundaries:
+RoroGPT features a 100% deterministic, offline-capable test suite that requires **zero external credentials** and makes **zero calls to external AI providers or public websites**.
+
+### 1. Default Deterministic Suite (`npm test`)
+
+Run the complete automated test suite:
 ```bash
-node test.js
+npm test
 ```
+
+#### What the Default Suite Covers:
+- **Offline & Deterministic Execution**: Binds native test servers to dynamic ephemeral ports (port 0) and uses a local mock upstream chat provider. No real Groq, Gemini, Cerebras, or Ollama services are contacted.
+- **Upstream Chat Provider Mocking & SSE**: Tests multi-chunk OpenAI-compatible SSE streaming, reasoning deltas (`delta.reasoning` / `delta.reasoning_content`), normal content deltas, `[DONE]` termination, provider errors (JSON and plain-text), final partial chunks without trailing newlines, and client-side cancellation.
+- **Native Server & Routing Integrity**: Verifies `GET /`, MIME types for static assets (`.html`, `.css`, `.js`, `.svg`, `.jpg`), SPA route fallback, 404 behavior on missing static files, unsupported HTTP method errors (405), malformed request body handling, and 2 MB request-body limits (413).
+- **Free-Only Catalog & Provider Policy**: Validates that only approved free-tier providers (`groq`, `gemini`, `cerebras`, `ollama`) are advertised. Rejects OpenRouter, `:free` suffixes, and uncataloged models. Ensures all model notices carry terms and quota caveats.
+- **Semantic Vector Embeddings**: Validates `free-fast-vector` (256 dimensions) and `free-multilingual-ngram` (512 dimensions) vector generation, batch arrays, null/empty/mixed-type input rejection (HTTP 400), and crash-resilient error recovery.
+- **SSRF & DNS-Rebinding Hardening**: Tests manual redirect tracking (5 hops), redirect loop prevention, and socket peer validation blocking localhost, private subnets (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16), IPv6 loopback (`[::1]`), and cloud metadata (`169.254.169.254`).
+- **Client-Side Markdown & XSS Defense**: Verifies DOMPurify sanitization stripping executable scripts, malicious event handlers (`onerror`, `onload`), dangerous URI schemes (`javascript:`, `vbscript:`, `data:`), KaTeX formula safety, and safe link formatting.
+- **Safe innerHTML & Attachment Storage**: Verifies safe DOM node generation, IndexedDB binary storage for image attachments outside `localStorage`, quota error recovery, and consistent model metadata attribution across chat exports (`.md` and `.json`).
+- **Network Call Monitor**: Actively monitors all outbound network calls during execution and verifies that **exactly 0 external calls** were attempted.
+
+### 2. Opt-In Live Smoke Tests (`npm run test:live`)
+
+To validate real upstream cloud streaming against live free-tier providers using your configured `.env` keys:
+
+```bash
+RUN_LIVE_TESTS=1 npm run test:live
+```
+
+> **Notice on Live Tests**: Live tests require an explicit `RUN_LIVE_TESTS=1` flag and a configured `GROQ_API_KEY`, `GEMINI_API_KEY`, or `CEREBRAS_API_KEY`. Live tests consume provider free-tier quota and may be rate-limited or unavailable if quotas are exhausted. Live tests never run during standard CI or `npm test`.
 
 ---
 

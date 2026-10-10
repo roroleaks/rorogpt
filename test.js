@@ -15,6 +15,30 @@ async function runTests() {
   let passed = 0;
   let failed = 0;
 
+  // External Network Call Interceptor & Monitor (Zero External Calls Policy)
+  const externalNetworkCalls = [];
+  const originalGlobalFetch = globalThis.fetch;
+
+  function isLocalHostAddress(hostname) {
+    if (!hostname) return true;
+    const h = hostname.toLowerCase().split(":")[0];
+    return h === "127.0.0.1" || h === "localhost" || h === "::1" || h === "0.0.0.0" || h.startsWith("127.");
+  }
+
+  globalThis.fetch = async function monitoredFetch(input, init) {
+    let urlStr = typeof input === "string" ? input : input?.url || "";
+    try {
+      const parsed = new URL(urlStr, "http://127.0.0.1");
+      if (!isLocalHostAddress(parsed.hostname)) {
+        externalNetworkCalls.push({
+          url: urlStr,
+          host: parsed.hostname
+        });
+      }
+    } catch {}
+    return originalGlobalFetch.apply(this, arguments);
+  };
+
   function assert(condition, testName) {
     if (condition) {
       console.log(`  ✅ PASS: ${testName}`);
@@ -74,23 +98,18 @@ async function runTests() {
 
   // TEST SUITE 3: HTTP Server & Strict Free Models Validation
   console.log("\n--- 3. HTTP Server & Strict Free Models Verification ---");
-  const baseUrl = "http://localhost:3000";
   let spawnedServer = null;
-
-  try {
-    await fetch(`${baseUrl}/`, { signal: AbortSignal.timeout(800) });
-  } catch {
-    console.log("  ℹ️ Local server is not currently running. Launching in-process test server on port 3000...");
-    process.env.AUTORUN_SERVER = "false";
-    const { server } = await import("./server.js");
-    await new Promise((resolve, reject) => {
-      server.listen(3000, (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
+  process.env.AUTORUN_SERVER = "false";
+  const { server } = await import("./server.js");
+  await new Promise((resolve, reject) => {
+    server.listen(0, "127.0.0.1", (err) => {
+      if (err) reject(err);
+      else resolve();
     });
-    spawnedServer = server;
-  }
+  });
+  const serverPort = server.address().port;
+  const baseUrl = `http://127.0.0.1:${serverPort}`;
+  spawnedServer = server;
 
   // Test 3.1: Index HTML
   try {
@@ -157,18 +176,25 @@ async function runTests() {
     const res = await fetch(`${baseUrl}/api/chat`, { method: "GET" });
     assert(res.status === 405, "GET /api/chat returns HTTP 405 Method Not Allowed");
 
-    const chatRes = await fetch(`${baseUrl}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: [{ role: "user", content: "say hello in 2 words" }] })
-    });
-    const hasKey = Boolean(process.env.GROQ_API_KEY || process.env.GEMINI_API_KEY || process.env.CEREBRAS_API_KEY);
-    if (hasKey && chatRes.status === 200) {
-      assert(chatRes.status === 200, "POST /api/chat streams with configured key (HTTP 200 SSE)");
-      const contentType = chatRes.headers.get("content-type");
-      assert(contentType && contentType.includes("text/event-stream"), "Chat response is text/event-stream (SSE)");
-    } else {
-      assert(chatRes.status === 200 || chatRes.status === 401, "POST /api/chat method check responds gracefully (HTTP 200 or 401 auth)");
+    // Isolate cloud keys during unauthenticated guard check so no live external call occurs
+    const savedGroq = process.env.GROQ_API_KEY;
+    const savedGemini = process.env.GEMINI_API_KEY;
+    const savedCerebras = process.env.CEREBRAS_API_KEY;
+    delete process.env.GROQ_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.CEREBRAS_API_KEY;
+
+    try {
+      const chatRes = await fetch(`${baseUrl}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: [{ role: "user", content: "say hello in 2 words" }] })
+      });
+      assert(chatRes.status === 401, "POST /api/chat without credentials returns HTTP 401 Unauthorized (controlled auth)");
+    } finally {
+      if (savedGroq !== undefined) process.env.GROQ_API_KEY = savedGroq;
+      if (savedGemini !== undefined) process.env.GEMINI_API_KEY = savedGemini;
+      if (savedCerebras !== undefined) process.env.CEREBRAS_API_KEY = savedCerebras;
     }
   } catch (err) {
     assert(false, `GET /api/chat method check failed: ${err.message}`);
@@ -912,9 +938,6 @@ async function runTests() {
         redirectMockServer.closeAllConnections();
       }
       await new Promise((resolve) => redirectMockServer.close(resolve));
-    }
-    if (spawnedServer) {
-      spawnedServer.close();
     }
   }
 
@@ -2756,9 +2779,524 @@ async function runTests() {
     assert(false, `Test Suite 14 failed with error: ${err.message}\n${err.stack}`);
   }
 
+  // TEST SUITE 15: Deterministic Upstream Chat Provider Mocking & Native Endpoint Coverage (Fix 9)
+  console.log("\n--- 15. Deterministic Upstream Chat Provider Mocking & Native Endpoint Coverage (Fix 9) ---");
+  try {
+    const { createMockChatProvider } = await import("./test-helpers/mock-provider.js");
+    const { default: chatHandler, setChatFetchAdapter } = await import("./api/chat.js");
+    const { default: modelsHandler, SUPPORTED_PROVIDERS, PROVIDER_CONFIGS, ALL_MODELS, getDefaultModel, getModelById } = await import("./api/models.js");
+    const { default: embeddingsHandler, CURATED_EMBEDDING_MODELS } = await import("./api/embeddings.js");
+
+    process.env.RATE_LIMIT_MAX_CHAT = "5000";
+
+    // 15.1 Group 1: Native Server & Routing Coverage
+    console.log("  [Group 1: Native Server & Routing Coverage]");
+    // 15.1.1 GET / returns HTTP 200 with text/html
+    const rootRes = await fetch(`${baseUrl}/`);
+    assert(rootRes.status === 200, "Fix 9: Native Server - GET / returns HTTP 200");
+    const rootType = rootRes.headers.get("content-type") || "";
+    assert(rootType.includes("text/html"), "Fix 9: Native Server - GET / has Content-Type text/html");
+
+    // 15.1.2 Static assets have expected content types
+    const cssRes = await fetch(`${baseUrl}/style.css`);
+    assert(cssRes.status === 200, "Fix 9: Native Server - GET /style.css returns HTTP 200");
+    assert((cssRes.headers.get("content-type") || "").includes("text/css"), "Fix 9: Native Server - /style.css has Content-Type text/css");
+
+    const jsRes = await fetch(`${baseUrl}/app.js`);
+    assert(jsRes.status === 200, "Fix 9: Native Server - GET /app.js returns HTTP 200");
+    assert((jsRes.headers.get("content-type") || "").includes("javascript"), "Fix 9: Native Server - /app.js has Content-Type application/javascript");
+
+    const svgRes = await fetch(`${baseUrl}/favicon.svg`);
+    assert(svgRes.status === 200, "Fix 9: Native Server - GET /favicon.svg returns HTTP 200");
+    assert((svgRes.headers.get("content-type") || "").includes("image/svg+xml"), "Fix 9: Native Server - /favicon.svg has Content-Type image/svg+xml");
+
+    const jpgRes = await fetch(`${baseUrl}/logo.jpg`);
+    assert(jpgRes.status === 200, "Fix 9: Native Server - GET /logo.jpg returns HTTP 200");
+    assert((jpgRes.headers.get("content-type") || "").includes("image/jpeg"), "Fix 9: Native Server - /logo.jpg has Content-Type image/jpeg");
+
+    // 15.1.3 Unknown static paths return documented fallback or 404 behavior
+    const missingAssetRes = await fetch(`${baseUrl}/nonexistent-asset-file-1234.png`);
+    assert(missingAssetRes.status === 404, "Fix 9: Native Server - Nonexistent static file with extension returns HTTP 404");
+
+    const spaRouteRes = await fetch(`${baseUrl}/chat/session-xyz-123`);
+    assert(spaRouteRes.status === 200, "Fix 9: Native Server - SPA client route without extension falls back to index.html (HTTP 200)");
+    const spaType = spaRouteRes.headers.get("content-type") || "";
+    assert(spaType.includes("text/html"), "Fix 9: Native Server - SPA fallback route returns text/html");
+
+    // 15.1.4 API routes return correct method errors (HTTP 405)
+    const chatGetRes = await fetch(`${baseUrl}/api/chat`, { method: "GET" });
+    assert(chatGetRes.status === 405, "Fix 9: Native Server - GET /api/chat returns HTTP 405 Method Not Allowed");
+
+    const modelsPostRes = await fetch(`${baseUrl}/api/models`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({})
+    });
+    assert(modelsPostRes.status === 405, "Fix 9: Native Server - POST /api/models returns HTTP 405 Method Not Allowed");
+
+    const embeddingsDeleteRes = await fetch(`${baseUrl}/api/embeddings`, { method: "DELETE" });
+    assert(embeddingsDeleteRes.status === 405, "Fix 9: Native Server - DELETE /api/embeddings returns HTTP 405 Method Not Allowed");
+
+    // 15.1.5 Malformed request bodies return controlled errors and do not terminate server
+    const malformedBodyRes = await fetch(`${baseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "INVALID_JSON_RAW_PAYLOAD_{{[("
+    });
+    assert(malformedBodyRes.status === 400 || malformedBodyRes.status === 401, "Fix 9: Native Server - Malformed JSON body returns controlled error (400/401)");
+
+    // 15.1.6 Request-body limits are enforced (MAX_BODY_BYTES = 2 MB)
+    const largePayload = "x".repeat(2.5 * 1024 * 1024); // 2.5 MB (> 2 MB limit)
+    let bodyLimitStatus = 0;
+    try {
+      const oversizedRes = await fetch(`${baseUrl}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ huge: largePayload })
+      });
+      bodyLimitStatus = oversizedRes.status;
+    } catch {
+      bodyLimitStatus = 413;
+    }
+    assert(bodyLimitStatus === 413 || bodyLimitStatus === 400, "Fix 9: Native Server - Request body exceeding 2 MB limit is rejected with HTTP 413/400");
+
+    // 15.2 Group 2: Models & Free-Only Provider Policy
+    console.log("  [Group 2: Models & Free-Only Provider Policy]");
+    // 15.2.1 /api/models returns success and only approved free-only providers
+    const modelsRes = await fetch(`${baseUrl}/api/models`);
+    assert(modelsRes.status === 200, "Fix 9: Models - GET /api/models returns HTTP 200");
+    const modelsJson = await modelsRes.json();
+    assert(modelsJson.success === true, "Fix 9: Models - GET /api/models returned success: true");
+
+    const approvedProviders = ["groq", "gemini", "cerebras", "ollama"];
+    const returnedProviderIds = modelsJson.providers.map(p => p.id);
+    assert(
+      returnedProviderIds.length === 4 &&
+      returnedProviderIds.every(id => approvedProviders.includes(id)),
+      "Fix 9: Models - Advertised providers strictly match approved free-only list (groq, gemini, cerebras, ollama)"
+    );
+
+    // 15.2.2 Every advertised model has valid provider metadata
+    assert(modelsJson.models.length > 0, "Fix 9: Models - Model catalog contains curated free models");
+    const allModelsValid = modelsJson.models.every(m =>
+      m.id &&
+      m.name &&
+      approvedProviders.includes(m.provider) &&
+      m.speed &&
+      m.context &&
+      typeof m.supportsVision === "boolean" &&
+      m.description
+    );
+    assert(allModelsValid, "Fix 9: Models - Every advertised model has complete valid metadata and provider attribution");
+
+    // 15.2.3 OpenRouter is completely absent and rejected
+    assert(!returnedProviderIds.includes("openrouter"), "Fix 9: Models - OpenRouter is absent from providers");
+    assert(modelsJson.models.every(m => m.provider !== "openrouter" && !m.id.includes("openrouter") && !m.id.endsWith(":free")), "Fix 9: Models - OpenRouter and :free models are absent from catalog");
+
+    // 15.2.4 Unknown providers and incompatible models return HTTP 400
+    const unknownProviderRes = await fetch(`${baseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        provider: "unsupported-vendor",
+        model: "qwen/qwen3.8-27b",
+        apiKey: "gsk_test",
+        messages: [{ role: "user", content: "test" }]
+      })
+    });
+    assert(unknownProviderRes.status === 400, "Fix 9: Models - Unknown provider returns HTTP 400 Bad Request");
+
+    const mismatchedModelRes = await fetch(`${baseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        provider: "groq",
+        model: "gemini-2.0-flash", // Belongs to gemini, not groq
+        apiKey: "gsk_test",
+        messages: [{ role: "user", content: "test" }]
+      })
+    });
+    assert(mismatchedModelRes.status === 400, "Fix 9: Models - Mismatched provider and model returns HTTP 400 Bad Request");
+
+    // 15.2.5 Default-model behavior is deterministic
+    const defModel = getDefaultModel();
+    assert(Boolean(defModel), "Fix 9: Models - Default model is deterministically configured");
+    assert(Boolean(getModelById(defModel)), "Fix 9: Models - Default model resolves to a valid catalog entry");
+
+    // 15.2.6 No model metadata makes unconditional paid/free guarantee
+    const allNoticesHaveTerms = modelsJson.providers.every(p => {
+      const notice = (p.freeTierNotice || "").toLowerCase();
+      return notice.includes("terms") || notice.includes("quota") || notice.includes("eligible") || notice.includes("locally");
+    });
+    assert(allNoticesHaveTerms, "Fix 9: Models - Provider metadata includes terms/quota caveats and zero unconditional guarantees");
+
+    // 15.3 Group 3: Deterministic Semantic Embeddings
+    console.log("  [Group 3: Semantic Embeddings Coverage]");
+    // 15.3.1 GET model listing works
+    const embListRes = await fetch(`${baseUrl}/api/embeddings`);
+    assert(embListRes.status === 200, "Fix 9: Embeddings - GET /api/embeddings returns HTTP 200");
+    const embListJson = await embListRes.json();
+    assert(Array.isArray(embListJson.models) && embListJson.models.length >= 2, "Fix 9: Embeddings - GET returns curated embedding models");
+
+    // 15.3.2 Valid scalar input produces vectors with 256 dimensions
+    const embScalarRes = await fetch(`${baseUrl}/api/embeddings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ input: "semantic text for testing", model: "free-fast-vector" })
+    });
+    assert(embScalarRes.status === 200, "Fix 9: Embeddings - Scalar string input returns HTTP 200");
+    const embScalarJson = await embScalarRes.json();
+    assert(embScalarJson.data?.length === 1, "Fix 9: Embeddings - Scalar input produces 1 embedding object");
+    assert(embScalarJson.data[0].embedding.length === 256, "Fix 9: Embeddings - free-fast-vector dimensions strictly equal 256");
+
+    // 15.3.3 Valid array input produces vectors with 512 dimensions for multilingual model
+    const embArrayRes = await fetch(`${baseUrl}/api/embeddings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ input: ["phrase one", "عبارة ثانية", "phrase trois"], model: "free-multilingual-ngram" })
+    });
+    assert(embArrayRes.status === 200, "Fix 9: Embeddings - Array input returns HTTP 200");
+    const embArrayJson = await embArrayRes.json();
+    assert(embArrayJson.data?.length === 3, "Fix 9: Embeddings - Array input produces 3 embedding objects");
+    assert(embArrayJson.data[0].embedding.length === 512, "Fix 9: Embeddings - free-multilingual-ngram dimensions strictly equal 512");
+
+    // 15.3.4 Null, empty, mixed-type, and oversized inputs return HTTP 400
+    const nullInputRes = await fetch(`${baseUrl}/api/embeddings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ input: null })
+    });
+    assert(nullInputRes.status === 400, "Fix 9: Embeddings - Null input returns HTTP 400");
+
+    const emptyStrRes = await fetch(`${baseUrl}/api/embeddings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ input: "   " })
+    });
+    assert(emptyStrRes.status === 400, "Fix 9: Embeddings - Empty string returns HTTP 400");
+
+    const emptyArrRes = await fetch(`${baseUrl}/api/embeddings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ input: [] })
+    });
+    assert(emptyArrRes.status === 400, "Fix 9: Embeddings - Empty array returns HTTP 400");
+
+    const mixedArrRes = await fetch(`${baseUrl}/api/embeddings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ input: ["valid string", 42, null] })
+    });
+    assert(mixedArrRes.status === 400, "Fix 9: Embeddings - Mixed-type array returns HTTP 400");
+
+    const oversizedArr = new Array(120).fill("test string item");
+    const oversizedArrRes = await fetch(`${baseUrl}/api/embeddings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ input: oversizedArr })
+    });
+    assert(oversizedArrRes.status === 400, "Fix 9: Embeddings - Oversized array (> 100 items) returns HTTP 400");
+
+    const invalidModelRes = await fetch(`${baseUrl}/api/embeddings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ input: "test", model: "unsupported-embedding-model-xyz" })
+    });
+    assert(invalidModelRes.status === 400, "Fix 9: Embeddings - Unsupported model name returns HTTP 400");
+
+    // 15.3.5 Server remains healthy after all invalid embeddings tests
+    const healthyEmbRes = await fetch(`${baseUrl}/api/embeddings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ input: "recovery test" })
+    });
+    assert(healthyEmbRes.status === 200, "Fix 9: Embeddings - Server remains completely healthy and responsive after rejected inputs");
+
+    // 15.4 Group 4: Deterministic Mock Upstream Chat Provider & SSE
+    console.log("  [Group 4: Mock Upstream Chat Provider & SSE]");
+    const mockProvider = createMockChatProvider();
+    const mockProviderPort = await mockProvider.start();
+    assert(mockProviderPort > 0, `Fix 9: Mock Provider - Started local mock provider on 127.0.0.1:${mockProviderPort}`);
+
+    // Inject mock adapter into chat handler
+    setChatFetchAdapter(mockProvider.fetchAdapter);
+
+    try {
+      // 15.4.1 Case 1: Successful multi-chunk OpenAI-compatible SSE response
+      mockProvider.clearRequests();
+      mockProvider.setHandler((req, res, record) => {
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive"
+        });
+        res.write(`data: ${JSON.stringify({
+          id: "chunk-1",
+          model: record.body.model,
+          choices: [{ delta: { role: "assistant", content: "Hello" } }]
+        })}\n\n`);
+        res.write(`data: ${JSON.stringify({
+          id: "chunk-2",
+          model: record.body.model,
+          choices: [{ delta: { content: " world from mock!" } }]
+        })}\n\n`);
+        res.write("data: [DONE]\n\n");
+        res.end();
+      });
+
+      const sseRes = await fetch(`${baseUrl}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: "groq",
+          model: "qwen/qwen3.8-27b",
+          apiKey: "gsk_mock_test_key_12345",
+          messages: [{ role: "user", content: "Say hello" }]
+        })
+      });
+
+      assert(sseRes.status === 200, "Fix 9: Mock Provider - POST /api/chat returns HTTP 200 with mock provider");
+      assert((sseRes.headers.get("content-type") || "").includes("text/event-stream"), "Fix 9: Mock Provider - Response Content-Type is text/event-stream");
+
+      // Verify outgoing request recorded by mock provider
+      const recorded = mockProvider.getLastRequest();
+      assert(recorded !== null, "Fix 9: Mock Provider - Outbound request intercepted by mock provider");
+      assert(recorded.url === "https://api.groq.com/openai/v1/chat/completions", "Fix 9: Mock Provider - Outbound request targeted strictly fixed Groq endpoint");
+      assert(recorded.body.model === "qwen/qwen3.8-27b", "Fix 9: Mock Provider - Outbound request sent correct requested model ID");
+      assert(recorded.body.stream === true, "Fix 9: Mock Provider - Outbound request sent stream: true");
+      assert(recorded.headers["authorization"] === "Bearer gsk_mock_test_key_12345", "Fix 9: Mock Provider - Outbound request sent correct Bearer authorization");
+
+      // Read SSE stream
+      const sseReader = sseRes.body.getReader();
+      const sseDecoder = new TextDecoder();
+      let streamedAccumulator = "";
+      while (true) {
+        const { done, value } = await sseReader.read();
+        if (done) break;
+        streamedAccumulator += sseDecoder.decode(value);
+      }
+
+      assert(streamedAccumulator.includes(": connected"), "Fix 9: Mock Provider - Stream includes : connected heartbeat");
+      assert(streamedAccumulator.includes("Hello") && streamedAccumulator.includes(" world from mock!"), "Fix 9: Mock Provider - Stream successfully reconstructed all content chunks");
+      assert(streamedAccumulator.includes("data: [DONE]"), "Fix 9: Mock Provider - Stream terminated cleanly with [DONE]");
+
+      // 15.4.2 Case 2: Reasoning and normal content deltas preserved separately
+      mockProvider.clearRequests();
+      mockProvider.setHandler((req, res, record) => {
+        res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8" });
+        res.write(`data: ${JSON.stringify({
+          choices: [{ delta: { reasoning: "Thinking deeply about step 1..." } }]
+        })}\n\n`);
+        res.write(`data: ${JSON.stringify({
+          choices: [{ delta: { content: "Here is the verified answer." } }]
+        })}\n\n`);
+        res.write("data: [DONE]\n\n");
+        res.end();
+      });
+
+      const reasoningRes = await fetch(`${baseUrl}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: "groq",
+          model: "openai/gpt-oss-120b",
+          apiKey: "gsk_mock_reasoning_key",
+          messages: [{ role: "user", content: "Solve math problem" }]
+        })
+      });
+
+      const rReader = reasoningRes.body.getReader();
+      const rDecoder = new TextDecoder();
+      let rStream = "";
+      while (true) {
+        const { done, value } = await rReader.read();
+        if (done) break;
+        rStream += rDecoder.decode(value);
+      }
+
+      assert(rStream.includes("Thinking deeply about step 1..."), "Fix 9: Mock Provider - Reasoning delta preserved in client stream");
+      assert(rStream.includes("Here is the verified answer."), "Fix 9: Mock Provider - Content delta preserved in client stream");
+
+      // 15.4.3 Case 3: Provider HTTP error with JSON body surfaced safely
+      mockProvider.clearRequests();
+      mockProvider.setHandler((req, res) => {
+        res.writeHead(429, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          error: {
+            message: "Rate limit reached on Groq developer free tier. 30 requests per minute.",
+            type: "rate_limit_exceeded"
+          }
+        }));
+      });
+
+      const errJsonRes = await fetch(`${baseUrl}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: "groq",
+          model: "qwen/qwen3.8-27b",
+          apiKey: "gsk_mock_err_key",
+          messages: [{ role: "user", content: "Hi" }]
+        })
+      });
+
+      assert(errJsonRes.status === 429, "Fix 9: Mock Provider - Provider 429 JSON error returns HTTP 429");
+      const errJsonData = await errJsonRes.json();
+      assert(errJsonData.error.includes("Rate limit reached"), "Fix 9: Mock Provider - Provider error message surfaced safely to client");
+      assert(!JSON.stringify(errJsonData).includes("gsk_mock_err_key"), "Fix 9: Mock Provider - Provider error NEVER leaks API keys or secrets");
+
+      // 15.4.4 Case 4: Provider HTTP error with plain-text body surfaced safely
+      mockProvider.clearRequests();
+      mockProvider.setHandler((req, res) => {
+        res.writeHead(502, { "Content-Type": "text/plain" });
+        res.end("Bad Gateway: Upstream provider server unavailable");
+      });
+
+      const errTextRes = await fetch(`${baseUrl}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: "groq",
+          model: "qwen/qwen3.8-27b",
+          apiKey: "gsk_mock_err_key2",
+          messages: [{ role: "user", content: "Hi" }]
+        })
+      });
+
+      assert(errTextRes.status === 502, "Fix 9: Mock Provider - Provider 502 plain text error returns HTTP 502");
+      const errTextData = await errTextRes.json();
+      assert(errTextData.error.includes("Bad Gateway"), "Fix 9: Mock Provider - Plain text provider error surfaced safely");
+
+      // 15.4.5 Case 5: Final partial chunk without trailing newline is NOT lost
+      mockProvider.clearRequests();
+      mockProvider.setHandler((req, res) => {
+        res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8" });
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "Part 1\n" } }] })}\n\n`);
+        // Final chunk written WITHOUT trailing \n\n before closing stream
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "Part 2 Final Tail Chunk" } }] })}`);
+        res.end();
+      });
+
+      const partialSseRes = await fetch(`${baseUrl}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: "groq",
+          model: "qwen/qwen3.8-27b",
+          apiKey: "gsk_mock_partial_key",
+          messages: [{ role: "user", content: "Test partial" }]
+        })
+      });
+
+      const pReader = partialSseRes.body.getReader();
+      const pDecoder = new TextDecoder();
+      let pStream = "";
+      while (true) {
+        const { done, value } = await pReader.read();
+        if (done) break;
+        pStream += pDecoder.decode(value);
+      }
+
+      assert(pStream.includes("Part 2 Final Tail Chunk"), "Fix 9: Mock Provider - Final partial SSE chunk without trailing newline is processed completely without loss");
+
+      // 15.4.6 Case 6: Cancellation / Client Abort closes upstream request
+      mockProvider.clearRequests();
+      let mockObservedAbort = false;
+      mockProvider.setHandler((req, res) => {
+        req.on("close", () => {
+          mockObservedAbort = true;
+        });
+        res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8" });
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "Slow response start..." } }] })}\n\n`);
+        // Intentionally keep stream open to test client abort
+      });
+
+      const abortCtrl = new AbortController();
+      let cancelRes;
+      try {
+        cancelRes = await fetch(`${baseUrl}/api/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            provider: "groq",
+            model: "qwen/qwen3.8-27b",
+            apiKey: "gsk_mock_abort_key",
+            messages: [{ role: "user", content: "Abort me" }]
+          }),
+          signal: abortCtrl.signal
+        });
+
+        const cReader = cancelRes.body.getReader();
+        await cReader.read(); // Read first chunk
+        abortCtrl.abort(); // Client aborts request
+      } catch {
+        // AbortError on client side is expected
+      }
+
+      // Wait a moment for abort signal to propagate to upstream mock
+      await new Promise(r => setTimeout(r, 200));
+      assert(mockObservedAbort === true, "Fix 9: Mock Provider - Client abort propagated cleanly to close upstream mock connection");
+
+      // 15.4.7 Case 7: Local Ollama mode does not require any cloud key
+      mockProvider.clearRequests();
+      mockProvider.setHandler((req, res) => {
+        res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8" });
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "Local Ollama response." } }] })}\n\n`);
+        res.write("data: [DONE]\n\n");
+        res.end();
+      });
+
+      const ollamaRes = await fetch(`${baseUrl}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: "ollama",
+          model: "ollama/llama3",
+          // Notice: zero apiKey supplied!
+          messages: [{ role: "user", content: "Offline prompt" }]
+        })
+      });
+
+      assert(ollamaRes.status === 200, "Fix 9: Mock Provider - Local Ollama chat succeeds with ZERO API keys (HTTP 200)");
+      const ollamaRecorded = mockProvider.getLastRequest();
+      assert(ollamaRecorded !== null, "Fix 9: Mock Provider - Ollama outbound request intercepted");
+      assert(ollamaRecorded.url === "http://127.0.0.1:11434/v1/chat/completions", "Fix 9: Mock Provider - Ollama routes strictly to loopback port 11434");
+      assert(!ollamaRecorded.headers["authorization"], "Fix 9: Mock Provider - Ollama sends ZERO Authorization headers");
+
+    } finally {
+      // 15.4.8 Clean up mock provider and restore adapter
+      delete process.env.RATE_LIMIT_MAX_CHAT;
+      setChatFetchAdapter(null);
+      await mockProvider.close();
+    }
+
+    // 15.5 Group 5: External Network Call Monitor Verification
+    console.log("  [Group 5: External Network Monitor Verification]");
+    assert(externalNetworkCalls.length === 0, "Fix 9: Network Isolation - Default test suite made ZERO external network calls");
+    if (externalNetworkCalls.length > 0) {
+      console.error("  ❌ Unexpected external calls:", externalNetworkCalls);
+    } else {
+      console.log("  🌐 Network Isolation: 0 external calls (100% offline-capable & deterministic verified)");
+    }
+
+  } catch (err) {
+    assert(false, `Test Suite 15 failed with error: ${err.message}\n${err.stack}`);
+  }
+
+  // Restore global fetch & cleanup server
+  globalThis.fetch = originalGlobalFetch;
+  if (spawnedServer) {
+    if (typeof spawnedServer.closeAllConnections === "function") {
+      spawnedServer.closeAllConnections();
+    }
+    await new Promise(resolve => spawnedServer.close(resolve));
+    spawnedServer = null;
+  }
+
   // Summary
   console.log("\n========================================================");
   console.log(`   TOTAL TESTS: ${passed + failed} | PASSED: ${passed} | FAILED: ${failed}`);
+  console.log(`   🌐 External Network Calls: ${externalNetworkCalls.length} (Offline-capable & deterministic verified)`);
   console.log("========================================================\n");
 
   if (failed > 0) {

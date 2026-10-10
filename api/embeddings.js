@@ -79,12 +79,50 @@ export default async function handler(req, res) {
 
   const { input, model = "free-fast-vector" } = body || {};
 
-  if (!input) {
+  const selectedModel = CURATED_EMBEDDING_MODELS.find(m => m.id === model);
+  if (!selectedModel) {
+    return res.status(400).json({
+      error: `Unsupported embedding model '${model}'. Supported models: ${CURATED_EMBEDDING_MODELS.map(m => m.id).join(", ")}.`
+    });
+  }
+
+  if (input === undefined || input === null) {
     return res.status(400).json({ error: "Input text is required for embeddings." });
   }
 
+  if (typeof input !== "string" && !Array.isArray(input)) {
+    return res.status(400).json({ error: "Input must be a string or an array of strings." });
+  }
+
+  if (typeof input === "string") {
+    if (!input.trim()) {
+      return res.status(400).json({ error: "Input string cannot be empty." });
+    }
+    if (input.length > 100000) {
+      return res.status(400).json({ error: "Input text exceeds maximum length of 100,000 characters." });
+    }
+  }
+
+  if (Array.isArray(input)) {
+    if (input.length === 0) {
+      return res.status(400).json({ error: "Input array cannot be empty." });
+    }
+    if (input.length > 100) {
+      return res.status(400).json({ error: "Input array exceeds maximum batch size of 100 items." });
+    }
+    for (let i = 0; i < input.length; i++) {
+      const item = input[i];
+      if (typeof item !== "string" || !item.trim()) {
+        return res.status(400).json({ error: `Input element at index ${i} must be a non-empty string.` });
+      }
+      if (item.length > 100000) {
+        return res.status(400).json({ error: `Input element at index ${i} exceeds maximum length of 100,000 characters.` });
+      }
+    }
+  }
+
   const inputs = Array.isArray(input) ? input : [input];
-  const dims = model === "free-multilingual-ngram" ? 512 : 256;
+  const dims = selectedModel.dimensions;
 
   // Compute free local embeddings without external API dependencies or paid credits
   const data = inputs.map((text, idx) => ({
@@ -95,7 +133,8 @@ export default async function handler(req, res) {
 
   return res.status(200).json({
     success: true,
-    model,
+    model: selectedModel.id,
+    dimensions: dims,
     data,
     usage: { prompt_tokens: inputs.reduce((acc, t) => acc + t.length, 0), total_tokens: 0 }
   });

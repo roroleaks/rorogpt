@@ -6,6 +6,17 @@ import {
   getDefaultModel
 } from "./models.js";
 
+// Injectable fetch adapter for deterministic testing without external API calls
+let chatFetchAdapter = null;
+
+export function setChatFetchAdapter(fn) {
+  chatFetchAdapter = fn;
+}
+
+export function getChatFetchAdapter() {
+  return chatFetchAdapter;
+}
+
 export default async function handler(req, res) {
   if (!handleCors(req, res, "POST, OPTIONS")) {
     return;
@@ -228,7 +239,8 @@ export default async function handler(req, res) {
   req.on("close", () => abortController.abort());
 
   try {
-    const upstreamRes = await fetch(providerConfig.endpoint, {
+    const fetchFn = chatFetchAdapter || globalThis.fetch;
+    const upstreamRes = await fetchFn(providerConfig.endpoint, {
       method: "POST",
       headers: upstreamHeaders,
       body: JSON.stringify(payload),
@@ -238,14 +250,23 @@ export default async function handler(req, res) {
     if (!upstreamRes.ok) {
       let errorMsg = `Provider error (${upstreamRes.status})`;
       try {
-        const errorJson = await upstreamRes.json();
-        if (errorJson?.error?.message) {
-          errorMsg = errorJson.error.message;
-        } else if (errorJson?.error) {
-          errorMsg = typeof errorJson.error === "string" ? errorJson.error : JSON.stringify(errorJson.error);
+        const rawText = await upstreamRes.text();
+        if (rawText) {
+          try {
+            const errorJson = JSON.parse(rawText);
+            if (errorJson?.error?.message) {
+              errorMsg = errorJson.error.message;
+            } else if (errorJson?.error) {
+              errorMsg = typeof errorJson.error === "string" ? errorJson.error : JSON.stringify(errorJson.error);
+            } else {
+              errorMsg = rawText;
+            }
+          } catch {
+            errorMsg = rawText;
+          }
         }
       } catch {
-        errorMsg = await upstreamRes.text();
+        errorMsg = `Provider error (${upstreamRes.status})`;
       }
 
       // Explicit detection for payment/quota issues — Never route to paid services
@@ -315,6 +336,33 @@ export default async function handler(req, res) {
             }
           } catch {
             res.write(`${trimmed}\n\n`);
+          }
+        }
+      }
+    }
+
+    if (buffer && buffer.trim()) {
+      const line = buffer.trim();
+      if (line.startsWith("data: ")) {
+        const rawData = line.slice(6);
+        if (rawData !== "[DONE]") {
+          try {
+            const parsed = JSON.parse(rawData);
+            const delta = parsed.choices?.[0]?.delta || {};
+            const content = delta.content || "";
+            const reasoning = delta.reasoning || delta.reasoning_content || "";
+
+            if (content || reasoning) {
+              const clientPayload = JSON.stringify({
+                content,
+                reasoning,
+                model: parsed.model || targetModel,
+                provider: resolvedProvider
+              });
+              res.write(`data: ${clientPayload}\n\n`);
+            }
+          } catch {
+            res.write(`${line}\n\n`);
           }
         }
       }
