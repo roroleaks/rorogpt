@@ -53,10 +53,14 @@ export const MAX_BODY_BYTES = 2 * 1024 * 1024; // 2 MB body limit
 function parseBody(req) {
   if (req.body !== undefined && req.body !== null) {
     if (typeof req.body === "string") {
+      const trimmed = req.body.trim();
+      if (!trimmed) return Promise.resolve({});
       try {
         return Promise.resolve(JSON.parse(req.body));
       } catch {
-        return Promise.resolve(req.body);
+        const err = new Error("Invalid request payload: body must be valid JSON.");
+        err.statusCode = 400;
+        return Promise.reject(err);
       }
     }
     return Promise.resolve(req.body);
@@ -64,25 +68,41 @@ function parseBody(req) {
   return new Promise((resolve, reject) => {
     let raw = "";
     let byteCount = 0;
-    req.on("data", chunk => {
+    let exceeded = false;
+
+    function onData(chunk) {
       byteCount += chunk.length;
       if (byteCount > MAX_BODY_BYTES) {
+        if (exceeded) return;
+        exceeded = true;
+        req.removeListener("data", onData);
+        req.resume();
         const err = new Error("Payload Too Large: request body exceeds 2 MB limit");
         err.statusCode = 413;
-        req.destroy(err);
         reject(err);
         return;
       }
       raw += chunk;
-    });
+    }
+
+    req.on("data", onData);
     req.on("end", () => {
+      if (exceeded) return;
+      const trimmed = raw.trim();
+      if (!trimmed) {
+        resolve({});
+        return;
+      }
       try {
-        resolve(raw ? JSON.parse(raw) : {});
+        resolve(JSON.parse(raw));
       } catch {
-        resolve(raw);
+        const err = new Error("Invalid request payload: body must be valid JSON.");
+        err.statusCode = 400;
+        reject(err);
       }
     });
     req.on("error", (err) => {
+      if (exceeded) return;
       reject(err);
     });
   });
@@ -103,9 +123,11 @@ export async function requestHandler(req, res) {
       req.body = await parseBody(req);
     } catch (err) {
       if (err.statusCode === 413) {
+        res.setHeader("Connection", "close");
+        res.once("finish", () => setImmediate(() => req.destroy()));
         return res.status(413).json({ error: "Payload Too Large: request body exceeds 2 MB limit." });
       }
-      return res.status(400).json({ error: "Invalid request payload." });
+      return res.status(400).json({ error: "Invalid request payload: body must be valid JSON." });
     }
   }
 

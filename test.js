@@ -412,6 +412,25 @@ async function runTests() {
     assert(allowedOriginRes.status === 200, "CORS: Request from allowed origin accepted (HTTP 200)");
     assert(allowedOriginRes.headers.get("access-control-allow-origin") === "https://rorogpt.uk", "CORS: Access-Control-Allow-Origin echoes approved origin");
 
+    // 7.6.1 Production mode Vercel subdomain origin restrictions
+    delete process.env.ALLOWED_ORIGINS;
+    const evilVercelRes = await fetch(`${baseUrl}/api/chat`, {
+      method: "OPTIONS",
+      headers: {
+        "Origin": "https://evil-attacker.vercel.app"
+      }
+    });
+    assert(evilVercelRes.status === 403, "CORS: Arbitrary .vercel.app origin rejected in production (HTTP 403 Forbidden)");
+
+    const roroVercelRes = await fetch(`${baseUrl}/api/chat`, {
+      method: "OPTIONS",
+      headers: {
+        "Origin": "https://rorogpt.vercel.app"
+      }
+    });
+    assert(roroVercelRes.status === 204, "CORS: Exact rorogpt.vercel.app origin allowed in production (HTTP 204)");
+    assert(roroVercelRes.headers.get("access-control-allow-origin") === "https://rorogpt.vercel.app", "CORS: Access-Control-Allow-Origin echoes rorogpt.vercel.app");
+
     // 7.7 Rate-Limit Rejection
     process.env.RATE_LIMIT_WINDOW_MS = "60000";
     process.env.RATE_LIMIT_MAX_FETCH = "2";
@@ -2884,11 +2903,24 @@ async function runTests() {
       headers: { "Content-Type": "application/json" },
       body: "INVALID_JSON_RAW_PAYLOAD_{{[("
     });
-    assert(malformedBodyRes.status === 400 || malformedBodyRes.status === 401, "Fix 9: Native Server - Malformed JSON body returns controlled error (400/401)");
+    assert(malformedBodyRes.status === 400, "Fix 9: Native Server - Malformed JSON body returns exactly HTTP 400");
+    const malformedJson = await malformedBodyRes.json();
+    assert(
+      malformedJson.error === "Invalid request payload: body must be valid JSON.",
+      "Fix 9: Native Server - Malformed JSON body returns expected error message"
+    );
+
+    const badJsonRes = await fetch(`${baseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{bad"
+    });
+    assert(badJsonRes.status === 400, "Fix 9: Native Server - POST /api/chat with body '{bad' returns 400, not 401");
 
     // 15.1.6 Request-body limits are enforced (MAX_BODY_BYTES = 2 MB)
     const largePayload = "x".repeat(2.5 * 1024 * 1024); // 2.5 MB (> 2 MB limit)
     let bodyLimitStatus = 0;
+    let bodyLimitError = null;
     try {
       const oversizedRes = await fetch(`${baseUrl}/api/chat`, {
         method: "POST",
@@ -2896,10 +2928,27 @@ async function runTests() {
         body: JSON.stringify({ huge: largePayload })
       });
       bodyLimitStatus = oversizedRes.status;
-    } catch {
-      bodyLimitStatus = 413;
+    } catch (err) {
+      bodyLimitError = err.message;
     }
-    assert(bodyLimitStatus === 413 || bodyLimitStatus === 400, "Fix 9: Native Server - Request body exceeding 2 MB limit is rejected with HTTP 413/400");
+    assert(bodyLimitError === null, `Fix 9: Native Server - Request body exceeding 2 MB limit did not throw network error (got: ${bodyLimitError})`);
+    assert(bodyLimitStatus === 413, `Fix 9: Native Server - Request body exceeding 2 MB limit returns HTTP 413 (got: ${bodyLimitStatus})`);
+
+    const threeMbPayload = "x".repeat(3 * 1024 * 1024); // 3 MB (> 2 MB limit)
+    let threeMbStatus = 0;
+    let threeMbError = null;
+    try {
+      const threeMbRes = await fetch(`${baseUrl}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ huge: threeMbPayload })
+      });
+      threeMbStatus = threeMbRes.status;
+    } catch (err) {
+      threeMbError = err.message;
+    }
+    assert(threeMbError === null, `Fix 9: Native Server - 3 MB request body did not throw network error (got: ${threeMbError})`);
+    assert(threeMbStatus === 413, `Fix 9: Native Server - 3 MB request body returns HTTP 413 (got: ${threeMbStatus})`);
 
     // 15.2 Group 2: Models & Free-Only Provider Policy
     console.log("  [Group 2: Models & Free-Only Provider Policy]");

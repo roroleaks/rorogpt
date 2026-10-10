@@ -54,8 +54,7 @@ export function checkOrigin(req) {
   if (
     originHostname === "rorogpt.uk" ||
     originHostname.endsWith(".rorogpt.uk") ||
-    originHostname === "rorogpt.vercel.app" ||
-    originHostname.endsWith(".vercel.app")
+    originHostname === "rorogpt.vercel.app"
   ) {
     return { allowed: true, origin };
   }
