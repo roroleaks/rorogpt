@@ -269,6 +269,10 @@ const DOM = {
   previewAttachToChatBtn: document.getElementById("previewAttachToChatBtn")
 };
 
+if (typeof window !== "undefined") {
+  window.DOM = DOM;
+}
+
 // ==========================================================
 // SAFE HTML ESCAPING & DOMPURIFY SANITIZATION (HIGH FIX 4)
 // ==========================================================
@@ -2136,6 +2140,7 @@ async function fetchAndAttachWebLink() {
       DOM.webLinkUrlInput.value = "";
       DOM.webLinkInstructionInput.value = "";
       DOM.webLinkStatusBox.style.display = "none";
+      if (typeof updateModalBodyScroll === "function") updateModalBodyScroll();
     }, 600);
   } catch (err) {
     DOM.webLinkStatusBox.className = "weblink-status-box error";
@@ -2296,6 +2301,7 @@ function activateSkill(skill) {
     DOM.activeSkillComposerName.textContent = skill.name;
   }
   DOM.skillModal.classList.remove("open");
+  if (typeof updateModalBodyScroll === "function") updateModalBodyScroll();
   renderSkillsList();
   showToast(`Activated skill: "${skill.name}"! Applied to upcoming chat responses.`, "success");
 }
@@ -2580,7 +2586,10 @@ function attachLibraryItemToChat(item) {
   };
   state.attachments.push(attachment);
   renderAttachmentsTray();
-  if (DOM.libraryModal) DOM.libraryModal.classList.remove("open");
+  if (DOM.libraryModal) {
+    DOM.libraryModal.classList.remove("open");
+    if (typeof updateModalBodyScroll === "function") updateModalBodyScroll();
+  }
   showToast(`Attached "${item.name}" from Library!`, "success");
 }
 
@@ -3772,7 +3781,10 @@ function cosineSimilarity(vecA, vecB) {
 // ==========================================================
 // EVENT LISTENERS & INITIALIZATION
 // ==========================================================
+let eventsInitialized = false;
 function initEvents() {
+  if (eventsInitialized) return;
+  eventsInitialized = true;
   // Chat input auto-expand & send on Enter
   DOM.chatInput.addEventListener("input", () => {
     DOM.chatInput.style.height = "auto";
@@ -4073,10 +4085,23 @@ function initEvents() {
     if (isCurrentlyOpen) {
       closeAttachMenu();
     } else {
+      if (DOM.modelPillContainer) {
+        DOM.modelPillContainer.classList.remove("open");
+        if (DOM.modelPillBtn) DOM.modelPillBtn.setAttribute("aria-expanded", "false");
+      }
+      if (DOM.themeDropdownContainer) {
+        DOM.themeDropdownContainer.classList.remove("open");
+        if (DOM.themePickerBtn) DOM.themePickerBtn.setAttribute("aria-expanded", "false");
+      }
       DOM.attachMenuContainer.classList.add("open");
       DOM.attachMenuPopup.classList.add("open");
       if (DOM.attachMenuBtn) DOM.attachMenuBtn.setAttribute("aria-expanded", "true");
     }
+  }
+
+  if (typeof window !== "undefined") {
+    window.closeAttachMenu = closeAttachMenu;
+    window.toggleAttachMenu = toggleAttachMenu;
   }
 
   // "+" Attachment Menu Toggle
@@ -4088,12 +4113,14 @@ function initEvents() {
     });
   }
 
-  // Close menus on outside click or Escape key
-  document.addEventListener("click", (e) => {
+  // Close menus on outside click/tap or Escape key
+  const handleOutsideAttachMenu = (e) => {
     if (DOM.attachMenuContainer && !DOM.attachMenuContainer.contains(e.target)) {
       closeAttachMenu();
     }
-  });
+  };
+  document.addEventListener("click", handleOutsideAttachMenu);
+  document.addEventListener("pointerdown", handleOutsideAttachMenu);
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
@@ -4443,6 +4470,8 @@ function exportConversationJSON() {
 // STARTUP
 // ==========================================================
 document.addEventListener("DOMContentLoaded", () => {
+  if (state._appInitialized) return;
+  state._appInitialized = true;
   setTheme(state.currentTheme);
   setupMarkdown();
   initEvents();
@@ -4458,4 +4487,13 @@ if (typeof window !== "undefined") {
   window.deleteChat = deleteChat;
   window.loadChat = loadChat;
   window.renderMessages = renderMessages;
+  window.handleDocumentFiles = handleDocumentFiles;
+  window.handlePhotoFiles = handlePhotoFiles;
+  window.activateSkill = activateSkill;
+  window.deactivateSkill = deactivateSkill;
+  window.useCapturedPhoto = useCapturedPhoto;
+  window.fetchAndAttachWebLink = fetchAndAttachWebLink;
+  window.attachLibraryItemToChat = attachLibraryItemToChat;
+  window.removeAttachment = removeAttachment;
+  window.renderAttachmentsTray = renderAttachmentsTray;
 }

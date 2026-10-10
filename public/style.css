@@ -3559,19 +3559,20 @@ body.modal-open {
     align-items: center !important;
     gap: 6px;
     flex-wrap: nowrap !important;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+    overflow: visible !important;
     flex: 1 1 auto;
     min-width: 0;
   }
 
-  .input-left-tools::-webkit-scrollbar {
-    display: none;
+  .attach-menu-container {
+    position: relative !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    flex-shrink: 0;
   }
 
-  .attach-menu-container {
-    flex-shrink: 0;
+  .attach-menu-container.open {
+    z-index: 300;
   }
 
   .attach-menu-btn {
@@ -3584,6 +3585,9 @@ body.modal-open {
     align-items: center !important;
     justify-content: center !important;
     flex-shrink: 0;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    cursor: pointer;
   }
 
   .attach-menu-btn svg {
@@ -3592,15 +3596,38 @@ body.modal-open {
   }
 
   .attach-popup-menu {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 0;
     width: min(290px, calc(100vw - 24px));
     max-width: calc(100vw - 24px);
-    left: 0;
-    bottom: calc(100% + 8px);
+    max-height: min(420px, calc(100dvh - 120px));
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    z-index: 350;
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
+  }
+
+  [data-theme="clean-light"] .attach-popup-menu {
+    box-shadow: 0 12px 36px rgba(15, 23, 42, 0.2);
+    background: #ffffff;
   }
 
   .attach-opt {
     min-height: 44px;
     padding: 10px 12px;
+    touch-action: manipulation;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .attach-opt * {
+    pointer-events: none;
+  }
+
+  .attach-opt:active {
+    background: var(--bg-card-hover);
+    transform: scale(0.98);
   }
 
   .active-skill-composer-chip {

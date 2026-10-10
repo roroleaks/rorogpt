@@ -3631,7 +3631,9 @@ async function runTests() {
               version: 3,
               objectStoreNames: { contains: function() { return true; } },
               transaction: function() {
-                return {
+                var tx = {
+                  oncomplete: null,
+                  onerror: null,
                   objectStore: function() {
                     return {
                       get: function(key) {
@@ -3639,7 +3641,7 @@ async function runTests() {
                         setTimeout(function() { if (r.onsuccess) r.onsuccess({ target: { result: _memStore.get(key) } }); }, 0);
                         return r;
                       },
-                      put: function(val, key) { _memStore.set(key, val); },
+                      put: function(val, key) { _memStore.set(key || (val && val.id), val); },
                       getAll: function() {
                         var r = { onsuccess: null, onerror: null, result: [] };
                         setTimeout(function() { if (r.onsuccess) r.onsuccess({ target: { result: Array.from(_memStore.values()) } }); }, 0);
@@ -3649,6 +3651,8 @@ async function runTests() {
                     };
                   }
                 };
+                setTimeout(function() { if (tx.oncomplete) tx.oncomplete(); }, 0);
+                return tx;
               }
             };
             req.result = db;
@@ -3770,6 +3774,185 @@ async function runTests() {
     assert(attachMenuContainer.classList.contains("open"), "Mobile Task 3: attachMenuBtn opens attach popup menu");
     attachMenuBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
     assert(!attachMenuContainer.classList.contains("open"), "Mobile Task 3: attachMenuBtn closes attach popup menu on toggle");
+
+    // 17.6.1 Functional Mobile '+' Attach Menu & Insertion Functions Audit
+    const attachMenuPopup = win17.document.getElementById("attachMenuPopup");
+    const actionUploadFiles = win17.document.getElementById("actionUploadFiles");
+    const actionUploadPhotos = win17.document.getElementById("actionUploadPhotos");
+    const actionAddSkill = win17.document.getElementById("actionAddSkill");
+    const actionTakePhoto = win17.document.getElementById("actionTakePhoto");
+    const actionAddWebLink = win17.document.getElementById("actionAddWebLink");
+    const actionOpenLibrary = win17.document.getElementById("actionOpenLibrary");
+    const filePickerInput = win17.document.getElementById("filePickerInput");
+    const photoPickerInput = win17.document.getElementById("photoPickerInput");
+    const attachmentsTray = win17.document.getElementById("attachmentsTray");
+
+    assert(actionUploadFiles !== null, "Mobile Attach: actionUploadFiles button exists");
+    assert(actionUploadPhotos !== null, "Mobile Attach: actionUploadPhotos button exists");
+    assert(actionAddSkill !== null, "Mobile Attach: actionAddSkill button exists");
+    assert(actionTakePhoto !== null, "Mobile Attach: actionTakePhoto button exists");
+    assert(actionAddWebLink !== null, "Mobile Attach: actionAddWebLink button exists");
+    assert(actionOpenLibrary !== null, "Mobile Attach: actionOpenLibrary button exists");
+
+    // Outside tap/pointerdown closes attach menu
+    attachMenuBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(attachMenuContainer.classList.contains("open"), "Mobile Attach: Menu opens on button tap");
+    win17.document.body.dispatchEvent(new win17.MouseEvent("pointerdown", { bubbles: true }));
+    assert(!attachMenuContainer.classList.contains("open"), "Mobile Attach: Menu closes on outside pointerdown/tap");
+
+    // Escape key closes attach menu
+    attachMenuBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(attachMenuContainer.classList.contains("open"), "Mobile Attach: Menu re-opens");
+    win17.document.dispatchEvent(new win17.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    assert(!attachMenuContainer.classList.contains("open"), "Mobile Attach: Escape key closes attach menu");
+
+    // Action 1: Upload Files
+    let filePickerTriggered = false;
+    filePickerInput.click = () => { filePickerTriggered = true; };
+    attachMenuBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    actionUploadFiles.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(!attachMenuContainer.classList.contains("open"), "Mobile Attach: Upload Files closes menu on selection");
+    assert(filePickerTriggered === true, "Mobile Attach: Upload Files programmatically triggered filePickerInput");
+
+    // Simulate Document Insertion
+    await win17.handleDocumentFiles([{
+      name: "research_notes.txt",
+      size: 1024,
+      type: "text/plain",
+      text: async () => "Key research insights and summary"
+    }]);
+    assert(win17.state.attachments.length === 1, "Mobile Attach: Document attached to state.attachments");
+    assert(win17.state.attachments[0].name === "research_notes.txt", "Mobile Attach: Attachment name correctly recorded");
+    assert(attachmentsTray.style.display === "flex", "Mobile Attach: Attachments tray displayed as flex");
+    assert(attachmentsTray.children.length === 1, "Mobile Attach: Attachment chip rendered in tray");
+    assert(win17.document.getElementById("sendBtn").disabled === false, "Mobile Attach: sendBtn enables when document attachment is present");
+
+    // Action 2: Upload Photos
+    let photoPickerTriggered = false;
+    photoPickerInput.click = () => { photoPickerTriggered = true; };
+    attachMenuBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    actionUploadPhotos.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(!attachMenuContainer.classList.contains("open"), "Mobile Attach: Upload Photos closes menu on selection");
+    assert(photoPickerTriggered === true, "Mobile Attach: Upload Photos programmatically triggered photoPickerInput");
+
+    // Simulate Photo Insertion
+    await win17.handlePhotoFiles([{
+      name: "diagram.png",
+      size: 4096,
+      type: "image/png"
+    }]);
+    assert(win17.state.attachments.length === 2, "Mobile Attach: Photo attached to state.attachments");
+    assert(win17.state.attachments[1].name === "diagram.png", "Mobile Attach: Photo attachment name correctly recorded");
+    assert(win17.state.attachments[1].blobId !== undefined, "Mobile Attach: Photo assigned blobId for IndexedDB");
+    assert(attachmentsTray.children.length === 2, "Mobile Attach: Two chips rendered in attachments tray");
+
+    // Action 3: Add a Skill
+    attachMenuBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    actionAddSkill.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(!attachMenuContainer.classList.contains("open"), "Mobile Attach: Add Skill closes menu");
+    const skillModal = win17.document.getElementById("skillModal");
+    assert(skillModal.classList.contains("open"), "Mobile Attach: Add Skill opens skillModal");
+
+    // Activate a skill
+    win17.activateSkill({
+      id: "skill_clinical",
+      name: "Clinical Evidence Analyst",
+      instructions: "Perform rigorous evidence synthesis."
+    });
+    assert(!skillModal.classList.contains("open"), "Mobile Attach: Activating skill closes skillModal");
+    assert(win17.state.activeSkill !== null, "Mobile Attach: Active skill stored in state");
+    assert(win17.state.activeSkill.name === "Clinical Evidence Analyst", "Mobile Attach: Active skill name matches");
+    const skillChip = win17.document.getElementById("activeSkillComposerChip");
+    assert(skillChip.style.display === "inline-flex", "Mobile Attach: Active skill chip displayed in composer");
+    assert(win17.document.getElementById("activeSkillComposerName").textContent === "Clinical Evidence Analyst", "Mobile Attach: Active skill name rendered in composer chip");
+
+    // Deactivate skill
+    win17.document.getElementById("clearActiveSkillBtn").dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(win17.state.activeSkill === null, "Mobile Attach: Deactivating skill clears state.activeSkill");
+    assert(skillChip.style.display === "none", "Mobile Attach: Active skill chip hidden after deactivation");
+
+    // Action 4: Take a Photo
+    attachMenuBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    actionTakePhoto.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(!attachMenuContainer.classList.contains("open"), "Mobile Attach: Take Photo closes attach menu");
+    const cameraModal = win17.document.getElementById("cameraModal");
+    assert(cameraModal.classList.contains("open"), "Mobile Attach: Take Photo opens cameraModal");
+
+    // Simulate captured photo insertion
+    win17.state.capturedPhotoData = "data:image/jpeg;base64," + Buffer.from("mockJpegPhotoData123456").toString("base64");
+    await win17.useCapturedPhoto();
+    assert(!cameraModal.classList.contains("open"), "Mobile Attach: useCapturedPhoto closes cameraModal");
+    assert(win17.state.attachments.length === 3, "Mobile Attach: Captured photo added to state.attachments");
+    assert(win17.state.attachments[2].name.startsWith("Camera_Photo_"), "Mobile Attach: Captured photo named with Camera_Photo_ prefix");
+    assert(attachmentsTray.children.length === 3, "Mobile Attach: 3 attachment chips rendered in tray");
+
+    // Action 5: Add a Website Link
+    attachMenuBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    actionAddWebLink.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(!attachMenuContainer.classList.contains("open"), "Mobile Attach: Add Web Link closes attach menu");
+    const webLinkModal = win17.document.getElementById("webLinkModal");
+    assert(webLinkModal.classList.contains("open"), "Mobile Attach: Add Web Link opens webLinkModal");
+
+    // Mock fetch for web link
+    const originalWinFetch = win17.fetch;
+    win17.fetch = async (url, opts) => {
+      if (typeof url === "string" && url.includes("/api/fetch-url")) {
+        return {
+          ok: true,
+          json: async () => ({
+            success: true,
+            title: "Scientific Synthesis Guideline",
+            content: "Extracted evidence text from scientific paper guideline.",
+            siteName: "guidelines.org",
+            description: "Evidence protocol"
+          })
+        };
+      }
+      return originalWinFetch(url, opts);
+    };
+
+    win17.document.getElementById("webLinkUrlInput").value = "https://guidelines.org/paper-123";
+    await win17.fetchAndAttachWebLink();
+    assert(win17.state.attachments.length === 4, "Mobile Attach: Web link content attached to state.attachments");
+    assert(win17.state.attachments[3].name === "Scientific Synthesis Guideline", "Mobile Attach: Web link attachment has extracted title");
+    assert(win17.state.attachments[3].type === "weblink", "Mobile Attach: Attachment type is weblink");
+    win17.fetch = originalWinFetch;
+
+    // Action 6: Personal Library
+    attachMenuBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    actionOpenLibrary.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(!attachMenuContainer.classList.contains("open"), "Mobile Attach: Personal Library closes attach menu");
+    const libraryModal = win17.document.getElementById("libraryModal");
+    assert(libraryModal.classList.contains("open"), "Mobile Attach: Personal Library opens libraryModal");
+
+    // Insert library item into chat
+    win17.attachLibraryItemToChat({
+      id: "lib_saved_001",
+      name: "Archived Protocol.pdf",
+      type: "document",
+      size: 8192,
+      textContent: "Archived clinical protocol data",
+      meta: "8 KB • Document"
+    });
+    assert(win17.state.attachments.length === 5, "Mobile Attach: Library item inserted into state.attachments");
+    assert(win17.state.attachments[4].name === "Archived Protocol.pdf", "Mobile Attach: Library attachment name preserved");
+    assert(!libraryModal.classList.contains("open"), "Mobile Attach: attachLibraryItemToChat closes libraryModal");
+    assert(attachmentsTray.children.length === 5, "Mobile Attach: 5 attachment chips rendered in tray");
+
+    // Test Attachment Removal & Send Button State
+    const firstRemoveBtn = attachmentsTray.querySelector(".chip-remove-btn");
+    assert(firstRemoveBtn !== null, "Mobile Attach: Chip remove button exists in tray");
+    firstRemoveBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(win17.state.attachments.length === 4, "Mobile Attach: Single attachment removed");
+    assert(attachmentsTray.children.length === 4, "Mobile Attach: 4 chips remain in tray");
+
+    // Remove remaining attachments
+    while (win17.state.attachments.length > 0) {
+      win17.removeAttachment(win17.state.attachments[0].id);
+    }
+    assert(win17.state.attachments.length === 0, "Mobile Attach: All attachments removed");
+    assert(attachmentsTray.style.display === "none", "Mobile Attach: Attachments tray hidden when empty");
+    assert(win17.document.getElementById("sendBtn").disabled === true, "Mobile Attach: sendBtn disabled when attachments and input are both empty");
 
     // SFX toggle button
     const sfxToggleBtn = win17.document.getElementById("sfxToggleBtn");
