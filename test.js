@@ -2326,6 +2326,436 @@ async function runTests() {
     assert(false, `Test Suite 13 failed with error: ${err.message}\n${err.stack}`);
   }
 
+  // TEST SUITE 14: Model Metadata Consistency Across Conversations, Messages, and Exports (Fix 8)
+  console.log("\n--- 14. Model Metadata Consistency Across Chats, Messages, & Exports (Fix 8) ---");
+  try {
+    const testDom14 = new JSDOM(
+      `<!DOCTYPE html><html><head></head><body>
+        <div id="toastContainer"></div>
+        <div id="previewModalIcon"></div>
+        <div id="previewModalTitle"></div>
+        <div id="previewModalBody"></div>
+        <div id="itemPreviewModal"></div>
+        <div id="previewAttachToChatBtn"></div>
+        <div id="chatViewport"><div id="messagesContainer"></div></div>
+        <div id="welcomeScreen"></div>
+        <div id="conversationsList"></div>
+        <div id="libraryGridContainer"></div>
+        <div id="attachmentsTray"></div>
+        <div id="dropdownModelsList"></div>
+        <div id="fullModelsGrid"></div>
+        <div id="embeddingsGrid"></div>
+        <div id="skillsListContainer"></div>
+        <div id="cameraErrorBanner"></div>
+        <div id="linkFetchStatusBox"></div>
+        <div id="modelPillBtn"><span class="best-badge"></span></div>
+        <div id="modelPillContainer"></div>
+        <div id="activeModelName"></div>
+        <div id="activeModelDot"></div>
+        <div id="inputModelChip"><span class="chip-name"></span><span class="chip-dot"></span></div>
+        <div id="welcomeActiveModel"></div>
+        <div id="apiKeyStatusBadge"><span class="status-dot"></span><span class="status-text"></span></div>
+        <div id="libraryModal"></div>
+        <div id="searchChatsInput"></div>
+        <div id="generatingBar"><span class="gen-text"></span></div>
+        <div id="stopGenerationBtn"></div>
+        <div id="newChatBtn"></div>
+        <div id="sidebar"></div>
+        <textarea id="chatInput"></textarea>
+        <button id="sendBtn"></button>
+        <button id="exportChatBtn"></button>
+      </body></html>`,
+      { runScripts: "dangerously", url: "https://rorogpt.uk" }
+    );
+
+    const purifyPath14 = path.join(__dirname, "public", "purify.min.js");
+    testDom14.window.eval(fs.readFileSync(purifyPath14, "utf8"));
+
+    // Provide mock IndexedDB, DOM, sfx, and state in testDom14
+    testDom14.window.eval(`
+      var DOM = window.DOM = {
+        toastContainer: document.getElementById("toastContainer"),
+        previewModalIcon: document.getElementById("previewModalIcon"),
+        previewModalTitle: document.getElementById("previewModalTitle"),
+        previewModalBody: document.getElementById("previewModalBody"),
+        itemPreviewModal: document.getElementById("itemPreviewModal"),
+        previewAttachToChatBtn: document.getElementById("previewAttachToChatBtn"),
+        chatViewport: document.getElementById("chatViewport"),
+        messagesContainer: document.getElementById("messagesContainer"),
+        welcomeScreen: document.getElementById("welcomeScreen"),
+        conversationsList: document.getElementById("conversationsList"),
+        libraryGridContainer: document.getElementById("libraryGridContainer"),
+        librarySearchInput: { value: "" },
+        attachmentsTray: document.getElementById("attachmentsTray"),
+        dropdownModelsList: document.getElementById("dropdownModelsList"),
+        fullModelsGrid: document.getElementById("fullModelsGrid"),
+        embeddingsGrid: document.getElementById("embeddingsGrid"),
+        skillsListContainer: document.getElementById("skillsListContainer"),
+        cameraErrorBanner: document.getElementById("cameraErrorBanner"),
+        linkFetchStatusBox: document.getElementById("linkFetchStatusBox"),
+        modelPillBtn: document.getElementById("modelPillBtn"),
+        modelPillContainer: document.getElementById("modelPillContainer"),
+        activeModelName: document.getElementById("activeModelName"),
+        activeModelDot: document.getElementById("activeModelDot"),
+        inputModelChip: document.getElementById("inputModelChip"),
+        welcomeActiveModel: document.getElementById("welcomeActiveModel"),
+        apiKeyStatusBadge: document.getElementById("apiKeyStatusBadge"),
+        libraryModal: document.getElementById("libraryModal"),
+        searchChatsInput: document.getElementById("searchChatsInput"),
+        generatingBar: document.getElementById("generatingBar"),
+        stopGenerationBtn: document.getElementById("stopGenerationBtn"),
+        newChatBtn: document.getElementById("newChatBtn"),
+        sidebar: document.getElementById("sidebar"),
+        chatInput: document.getElementById("chatInput"),
+        sendBtn: document.getElementById("sendBtn"),
+        exportChatBtn: document.getElementById("exportChatBtn")
+      };
+
+      var sfx = window.sfx = { playPop: () => {}, playReceive: () => {} };
+
+      var state = window.state = {
+        activeModel: "qwen/qwen3.8-27b",
+        activeProvider: "groq",
+        activeLibFilter: "all",
+        libraryItems: [],
+        attachments: [],
+        models: [
+          { id: "qwen/qwen3.8-27b", name: "Qwen 3.8 27B (Groq)", provider: "groq", speed: "⚡ Free", color: "#10b981" },
+          { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash (Google)", provider: "gemini", speed: "⚡ Instant", color: "#3b82f6" },
+          { id: "cerebras/llama3.1-8b", name: "Llama 3.1 8B (Cerebras)", provider: "cerebras", speed: "⚡ Blazing", color: "#8b5cf6" },
+          { id: "ollama/llama3.2", name: "Llama 3.2 3B (Local Ollama)", provider: "ollama", speed: "💻 Local", color: "#06b6d4" }
+        ],
+        skills: [],
+        chats: {},
+        currentChatId: null,
+        storageHealth: "healthy",
+        isGenerating: false,
+        apiKey: "",
+        appToken: ""
+      };
+
+      var _memStore14 = new Map();
+      window.indexedDB = {
+        open: function() {
+          const req = {};
+          setTimeout(() => {
+            const db = {
+              transaction: function() {
+                const tx = {
+                  objectStore: function() {
+                    return {
+                      put: function(val, key) { _memStore14.set(key || (val && val.id), val); },
+                      get: function(key) {
+                        const r = { result: _memStore14.get(key) };
+                        setTimeout(() => { if (r.onsuccess) r.onsuccess(); }, 0);
+                        return r;
+                      },
+                      getAll: function() {
+                        const r = { result: Array.from(_memStore14.values()) };
+                        setTimeout(() => { if (r.onsuccess) r.onsuccess(); }, 0);
+                        return r;
+                      },
+                      delete: function(key) { _memStore14.delete(key); }
+                    };
+                  }
+                };
+                setTimeout(() => { if (tx.oncomplete) tx.oncomplete(); }, 0);
+                return tx;
+              }
+            };
+            req.result = db;
+            if (req.onsuccess) req.onsuccess();
+          }, 0);
+          return req;
+        }
+      };
+    `);
+
+    // Evaluate app.js
+    const appSource = fs.readFileSync(path.join(__dirname, "public", "app.js"), "utf8");
+    const startHelperIdx = appSource.indexOf("function escapeHTML");
+    const endStartupIdx = appSource.indexOf("document.addEventListener(\"DOMContentLoaded\"");
+    const testCode14 = appSource.slice(startHelperIdx, endStartupIdx);
+    testDom14.window.eval(testCode14);
+
+    const win = testDom14.window;
+    win.DEFAULT_CHAT_MODEL = "qwen/qwen3.8-27b";
+    win.state.models = [
+      { id: "qwen/qwen3.8-27b", name: "Qwen 3.8 27B (Groq)", provider: "groq", speed: "⚡ Free", color: "#10b981" },
+      { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash (Google)", provider: "gemini", speed: "⚡ Instant", color: "#3b82f6" },
+      { id: "cerebras/llama3.1-8b", name: "Llama 3.1 8B (Cerebras)", provider: "cerebras", speed: "⚡ Blazing", color: "#8b5cf6" },
+      { id: "ollama/llama3.2", name: "Llama 3.2 3B (Local Ollama)", provider: "ollama", speed: "💻 Local", color: "#06b6d4" }
+    ];
+
+    // 14.1 Case 1: Creating a new chat stores the selected model and provider
+    win.state.activeModel = "qwen/qwen3.8-27b";
+    win.state.activeProvider = "groq";
+    win.createNewChat();
+    const activeChatId = win.state.currentChatId;
+    const activeChat = win.state.chats[activeChatId];
+    assert(Boolean(activeChat), "Fix 8: Case 1 - New chat created successfully");
+    assert(activeChat.model === "qwen/qwen3.8-27b", "Fix 8: Case 1 - New chat stores selected model ID");
+    assert(activeChat.provider === "groq", "Fix 8: Case 1 - New chat stores selected provider ID");
+
+    // 14.2 Case 2: Selecting a different model updates only the active chat metadata
+    win.state.chats.chat_inactive = {
+      id: "chat_inactive",
+      title: "Inactive Chat",
+      createdAt: 1000,
+      model: "qwen/qwen3.8-27b",
+      provider: "groq",
+      messages: []
+    };
+    const selectRes = win.selectModel("gemini-2.0-flash", "gemini");
+    assert(selectRes === true, "Fix 8: Case 2 - selectModel succeeded for catalog model");
+    assert(win.state.activeModel === "gemini-2.0-flash", "Fix 8: Case 2 - state.activeModel updated");
+    assert(win.state.activeProvider === "gemini", "Fix 8: Case 2 - state.activeProvider updated");
+    assert(win.state.chats[activeChatId].model === "gemini-2.0-flash", "Fix 8: Case 2 - Active chat model updated to new selection");
+    assert(win.state.chats[activeChatId].provider === "gemini", "Fix 8: Case 2 - Active chat provider updated to new selection");
+    assert(win.state.chats.chat_inactive.model === "qwen/qwen3.8-27b", "Fix 8: Case 2 - Inactive chat model remains completely unchanged");
+    assert(win.state.chats.chat_inactive.provider === "groq", "Fix 8: Case 2 - Inactive chat provider remains completely unchanged");
+
+    // 14.3 Case 3: Selecting a model does not rewrite historical assistant message metadata
+    win.state.chats[activeChatId].messages = [
+      { role: "user", content: "Hello Qwen" },
+      { role: "assistant", content: "Hello! I am Qwen.", model: "qwen/qwen3.8-27b", provider: "groq", modelName: "Qwen 3.8 27B" }
+    ];
+    win.selectModel("cerebras/llama3.1-8b", "cerebras");
+    const histMsg = win.state.chats[activeChatId].messages[1];
+    assert(histMsg.model === "qwen/qwen3.8-27b", "Fix 8: Case 3 - Historical assistant message model is NOT mutated by selectModel");
+    assert(histMsg.provider === "groq", "Fix 8: Case 3 - Historical assistant message provider is NOT mutated by selectModel");
+    assert(win.state.chats[activeChatId].model === "cerebras/llama3.1-8b", "Fix 8: Case 3 - Chat current selection updated to Cerebras");
+
+    // 14.4 Case 4: A new assistant message records the exact model and provider used for its request
+    let interceptedReqBody = null;
+    const originalFetch = win.fetch;
+    win.fetch = async (url, opts) => {
+      if (url === "/api/chat") {
+        interceptedReqBody = JSON.parse(opts.body);
+        return {
+          ok: true,
+          body: {
+            getReader() {
+              let done = false;
+              return {
+                async read() {
+                  if (!done) {
+                    done = true;
+                    return { done: false, value: new TextEncoder().encode('data: {"content":"Answer from Cerebras"}\n\ndata: [DONE]\n\n') };
+                  }
+                  return { done: true, value: undefined };
+                }
+              };
+            }
+          }
+        };
+      }
+      return originalFetch(url, opts);
+    };
+
+    win.DOM.chatInput.value = "Tell me a fact";
+    await win.sendMessage();
+    assert(interceptedReqBody !== null, "Fix 8: Case 4 - Outbound chat request dispatched");
+    assert(interceptedReqBody.model === "cerebras/llama3.1-8b", "Fix 8: Case 4 - Outbound request sent requested model");
+    assert(interceptedReqBody.provider === "cerebras", "Fix 8: Case 4 - Outbound request sent requested provider");
+    const newBotMsg = win.state.chats[activeChatId].messages[win.state.chats[activeChatId].messages.length - 1];
+    assert(newBotMsg.model === "cerebras/llama3.1-8b", "Fix 8: Case 4 - Assistant message recorded requested model ID");
+    assert(newBotMsg.provider === "cerebras", "Fix 8: Case 4 - Assistant message recorded requested provider ID");
+    assert(newBotMsg.content === "Answer from Cerebras", "Fix 8: Case 4 - Assistant message received content");
+
+    // 14.5 Case 5: Changing models during streaming does not relabel the in-flight message
+    let streamRelease;
+    const streamGate = new Promise(resolve => { streamRelease = resolve; });
+
+    win.fetch = async (url, opts) => {
+      if (url === "/api/chat") {
+        interceptedReqBody = JSON.parse(opts.body);
+        return {
+          ok: true,
+          body: {
+            getReader() {
+              let chunkCount = 0;
+              return {
+                async read() {
+                  if (chunkCount === 0) {
+                    chunkCount++;
+                    return { done: false, value: new TextEncoder().encode('data: {"content":"Streaming part 1"}\n\n') };
+                  } else if (chunkCount === 1) {
+                    chunkCount++;
+                    await streamGate;
+                    return { done: false, value: new TextEncoder().encode('data: {"content":" and part 2"}\n\ndata: [DONE]\n\n') };
+                  }
+                  return { done: true, value: undefined };
+                }
+              };
+            }
+          }
+        };
+      }
+      return originalFetch(url, opts);
+    };
+
+    win.selectModel("gemini-2.0-flash", "gemini");
+    win.DOM.chatInput.value = "Streaming test question";
+    const sendPromise = win.sendMessage();
+
+    // While streaming is paused on streamGate, verify in-flight status and switch model
+    await new Promise(r => setTimeout(r, 10));
+    assert(win.state.isGenerating === true, "Fix 8: Case 5 - Generation is actively in-flight");
+    win.selectModel("qwen/qwen3.8-27b", "groq"); // User switches to Qwen mid-stream
+    streamRelease(); // Release stream gate
+    await sendPromise;
+
+    const streamedBotMsg = win.state.chats[activeChatId].messages[win.state.chats[activeChatId].messages.length - 1];
+    assert(streamedBotMsg.model === "gemini-2.0-flash", "Fix 8: Case 5 - In-flight message strictly retains requested Gemini model");
+    assert(streamedBotMsg.provider === "gemini", "Fix 8: Case 5 - In-flight message strictly retains requested Gemini provider");
+    assert(win.state.chats[activeChatId].model === "qwen/qwen3.8-27b", "Fix 8: Case 5 - Current conversation model updated to Qwen for subsequent turns");
+    assert(win.state.activeModel === "qwen/qwen3.8-27b", "Fix 8: Case 5 - Active client model updated to Qwen for subsequent turns");
+
+    // 14.6 Case 6: A failed response still retains the requested model metadata
+    win.fetch = async (url, opts) => {
+      if (url === "/api/chat") {
+        return {
+          ok: false,
+          status: 500,
+          json: async () => ({ error: "Provider upstream 500 failure" }),
+          text: async () => "Provider upstream 500 failure"
+        };
+      }
+      return originalFetch(url, opts);
+    };
+
+    win.DOM.chatInput.value = "Will this error?";
+    await win.sendMessage();
+    const errorBotMsg = win.state.chats[activeChatId].messages[win.state.chats[activeChatId].messages.length - 1];
+    assert(errorBotMsg.model === "qwen/qwen3.8-27b", "Fix 8: Case 6 - Failed response message preserves requested model ID");
+    assert(errorBotMsg.provider === "groq", "Fix 8: Case 6 - Failed response message preserves requested provider ID");
+    assert(errorBotMsg.content.includes("Provider upstream 500 failure"), "Fix 8: Case 6 - Error content displayed in message bubble");
+
+    // 14.7 Case 7: A cancelled/partial response retains the requested model metadata
+    win.fetch = async (url, opts) => {
+      if (url === "/api/chat") {
+        return {
+          ok: true,
+          body: {
+            getReader() {
+              return {
+                async read() {
+                  const err = new Error("Generation aborted");
+                  err.name = "AbortError";
+                  throw err;
+                }
+              };
+            }
+          }
+        };
+      }
+      return originalFetch(url, opts);
+    };
+
+    win.DOM.chatInput.value = "Will this abort?";
+    await win.sendMessage();
+    const abortedBotMsg = win.state.chats[activeChatId].messages[win.state.chats[activeChatId].messages.length - 1];
+    assert(abortedBotMsg.model === "qwen/qwen3.8-27b", "Fix 8: Case 7 - Aborted response message preserves requested model ID");
+    assert(abortedBotMsg.provider === "groq", "Fix 8: Case 7 - Aborted response message preserves requested provider ID");
+    assert(abortedBotMsg.content.includes("Generation stopped by user"), "Fix 8: Case 7 - Abort notification recorded in content");
+
+    // 14.8 Case 8: Loading a legacy chat without model fields does not assign the current model to old messages
+    win.state.chats.legacy_missing_models = {
+      id: "legacy_missing_models",
+      title: "Ancient Conversation",
+      createdAt: 100,
+      messages: [
+        { role: "user", content: "Ancient prompt" },
+        { role: "assistant", content: "Ancient reply without model" }
+      ]
+    };
+    await win.migrateLegacyChats();
+    const migratedLegacyChat = win.state.chats.legacy_missing_models;
+    assert(migratedLegacyChat.model === "qwen/qwen3.8-27b", "Fix 8: Case 8 - Legacy chat assigned safe default model fallback for future turns");
+    assert(migratedLegacyChat.messages[1].model === "unknown/legacy", "Fix 8: Case 8 - Legacy assistant message marked as 'unknown/legacy'");
+    assert(migratedLegacyChat.messages[1].model !== win.state.activeModel, "Fix 8: Case 8 - Legacy message was NOT rewritten to current active model");
+
+    // 14.9 Case 9: Exported Markdown contains accurate model history
+    win.state.currentChatId = activeChatId;
+    const currentChatForExport = win.state.chats[activeChatId];
+    const usedModels = new Set();
+    currentChatForExport.messages.forEach(m => {
+      if (m.role === "assistant" && m.model) {
+        usedModels.add(`${m.model}${m.provider ? " (" + m.provider + ")" : ""}`);
+      }
+    });
+    assert(usedModels.has("qwen/qwen3.8-27b (groq)"), "Fix 8: Case 9 - Model history includes Qwen turn");
+    assert(usedModels.has("cerebras/llama3.1-8b (cerebras)"), "Fix 8: Case 9 - Model history includes Cerebras turn");
+    assert(usedModels.has("gemini-2.0-flash (gemini)"), "Fix 8: Case 9 - Model history includes Gemini turn");
+
+    // 14.10 Case 10: Exported JSON preserves per-message model/provider data
+    let writtenPCFiles = {};
+    win.state.dirHandle = {
+      async queryPermission() { return "granted"; },
+      async requestPermission() { return "granted"; },
+      async getFileHandle(fileName, opts) {
+        return {
+          async createWritable() {
+            return {
+              async write(data) { writtenPCFiles[fileName] = data; },
+              async close() {}
+            };
+          }
+        };
+      }
+    };
+    await win.autoSaveChatToPC(currentChatForExport);
+    const jsonFileName = Object.keys(writtenPCFiles).find(f => f.endsWith(".json"));
+    assert(Boolean(jsonFileName), "Fix 8: Case 10 - JSON export file generated");
+    const parsedExportedJson = JSON.parse(writtenPCFiles[jsonFileName]);
+    assert(parsedExportedJson.model === "qwen/qwen3.8-27b", "Fix 8: Case 10 - Exported JSON chat.model matches latest selection");
+    assert(parsedExportedJson.provider === "groq", "Fix 8: Case 10 - Exported JSON chat.provider matches latest selection");
+    const exportedAssistantMsgs = parsedExportedJson.messages.filter(m => m.role === "assistant");
+    assert(exportedAssistantMsgs.some(m => m.model === "cerebras/llama3.1-8b" && m.provider === "cerebras"), "Fix 8: Case 10 - Exported JSON preserves Cerebras turn");
+    assert(exportedAssistantMsgs.some(m => m.model === "gemini-2.0-flash" && m.provider === "gemini"), "Fix 8: Case 10 - Exported JSON preserves Gemini turn");
+
+    // 14.11 Case 11: PC-folder Markdown and JSON backups use the same accurate metadata
+    const mdFileName = Object.keys(writtenPCFiles).find(f => f.endsWith(".md"));
+    assert(Boolean(mdFileName), "Fix 8: Case 11 - Markdown PC backup file generated");
+    const exportedMdText = writtenPCFiles[mdFileName];
+    assert(exportedMdText.includes("Current Selected Model:"), "Fix 8: Case 11 - PC Markdown backup contains Current Selected Model header");
+    assert(exportedMdText.includes("Model History:"), "Fix 8: Case 11 - PC Markdown backup contains Model History summary");
+    assert(exportedMdText.includes("### 🤖 RoroGPT (cerebras/llama3.1-8b • Provider: cerebras)"), "Fix 8: Case 11 - PC Markdown backup contains exact Cerebras turn attribution");
+    assert(exportedMdText.includes("### 🤖 RoroGPT (gemini-2.0-flash • Provider: gemini)"), "Fix 8: Case 11 - PC Markdown backup contains exact Gemini turn attribution");
+
+    // 14.12 Case 12: A malformed or unavailable model value is handled safely
+    const rejectedFree = win.selectModel("meta-llama/llama-3-8b:free");
+    assert(rejectedFree === false, "Fix 8: Case 12 - selectModel rejects model with :free suffix");
+    const rejectedOpenRouter = win.selectModel("openrouter/auto");
+    assert(rejectedOpenRouter === false, "Fix 8: Case 12 - selectModel rejects OpenRouter model");
+    const rejectedNull = win.selectModel(null);
+    assert(rejectedNull === false, "Fix 8: Case 12 - selectModel handles null safely");
+    const rejectedNonExistent = win.selectModel("totally-nonexistent-unsupported-model");
+    assert(rejectedNonExistent === false, "Fix 8: Case 12 - selectModel rejects model not in catalog");
+    assert(win.state.activeModel === "qwen/qwen3.8-27b", "Fix 8: Case 12 - Active model remains safe and uncorrupted");
+
+    // 14.13 Case 13: No API key or authorization header is written into chat history or exports
+    win.state.apiKey = "gsk_super_secret_groq_api_key_12345";
+    win.state.appToken = "app_secret_token_abcdef123456";
+    win.saveChatsToStorage();
+
+    const storedChatsRaw = win.localStorage.getItem("roro_chats");
+    assert(!storedChatsRaw.includes("gsk_super_secret"), "Fix 8: Case 13 - localStorage contains ZERO api keys");
+    assert(!storedChatsRaw.includes("app_secret_token"), "Fix 8: Case 13 - localStorage contains ZERO app tokens");
+    assert(!storedChatsRaw.includes("Authorization"), "Fix 8: Case 13 - localStorage contains ZERO Authorization headers");
+
+    const exportedJsonText = writtenPCFiles[jsonFileName];
+    assert(!exportedJsonText.includes("gsk_super_secret"), "Fix 8: Case 13 - Exported JSON contains ZERO api keys");
+    assert(!exportedJsonText.includes("app_secret_token"), "Fix 8: Case 13 - Exported JSON contains ZERO app tokens");
+    assert(!exportedMdText.includes("gsk_super_secret"), "Fix 8: Case 13 - Exported Markdown contains ZERO api keys");
+
+    win.fetch = originalFetch; // Restore
+
+  } catch (err) {
+    assert(false, `Test Suite 14 failed with error: ${err.message}\n${err.stack}`);
+  }
+
   // Summary
   console.log("\n========================================================");
   console.log(`   TOTAL TESTS: ${passed + failed} | PASSED: ${passed} | FAILED: ${failed}`);

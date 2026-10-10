@@ -368,6 +368,14 @@ function isSafeCssColor(color) {
   return false;
 }
 
+function inferProvider(modelId) {
+  if (!modelId) return "groq";
+  if (modelId.startsWith("ollama/")) return "ollama";
+  if (modelId.startsWith("cerebras/")) return "cerebras";
+  if (modelId.startsWith("gemini-")) return "gemini";
+  return "groq";
+}
+
 // ==========================================================
 // TOAST NOTIFICATIONS (SAFE DOM CONSTRUCTION - H5)
 // ==========================================================
@@ -717,10 +725,12 @@ async function fetchModels() {
 }
 
 function updateApiKeyBadge(hasServerKey) {
+  if (!DOM.apiKeyStatusBadge) return;
   const k = (state.apiKey || "").trim();
   const hasUserKey = k.length > 5;
   const dot = DOM.apiKeyStatusBadge.querySelector(".status-dot");
   const text = DOM.apiKeyStatusBadge.querySelector(".status-text");
+  if (!dot || !text) return;
 
   if (k.startsWith("sk-or-")) {
     dot.className = "status-dot";
@@ -756,8 +766,11 @@ function updateApiKeyBadge(hasServerKey) {
 }
 
 function selectModel(modelId, provider) {
-  state.activeModel = modelId;
-  localStorage.setItem("roro_active_model", modelId);
+  if (!isAllowedModel(modelId)) {
+    console.warn(`[RoroGPT] Rejected invalid or uncataloged model: ${modelId}`);
+    showToast(`Model "${modelId || 'unknown'}" is not supported or not available in the free catalog.`, "error");
+    return false;
+  }
 
   const resolveModelProvider = (id) => {
     if (typeof inferProvider === "function") return inferProvider(id);
@@ -768,34 +781,119 @@ function selectModel(modelId, provider) {
     return "groq";
   };
 
-  const modelObj = state.models.find(m => m.id === modelId) || {
+  const modelObj = (state.models || []).find(m => m.id === modelId) || {
     id: modelId,
-    name: modelId.split("/").pop().replace(":free", ""),
+    name: (modelId || "").split("/").pop().replace(":free", ""),
     provider: provider || resolveModelProvider(modelId),
     speed: "⚡ Free Tier",
     color: "#10b981"
   };
 
   const resolvedProvider = provider || modelObj.provider || resolveModelProvider(modelId);
+
+  // 1. Update global active model and provider
+  state.activeModel = modelId;
   state.activeProvider = resolvedProvider;
-  localStorage.setItem("roro_active_provider", resolvedProvider);
+  try {
+    localStorage.setItem("roro_active_model", modelId);
+    localStorage.setItem("roro_active_provider", resolvedProvider);
+  } catch {}
 
-  const isBest = modelId === DEFAULT_CHAT_MODEL;
+  // 2. Update current active chat metadata without mutating historical assistant turns
+  if (state.currentChatId && state.chats[state.currentChatId]) {
+    state.chats[state.currentChatId].model = modelId;
+    state.chats[state.currentChatId].provider = resolvedProvider;
+    saveChatsToStorage();
+  }
 
+  // 3. Update all UI representations consistently
+  updateActiveModelUI(modelId, resolvedProvider);
+
+  if (modelId.includes("r1")) {
+    showToast(`DeepSeek R1 selected. Note: Generates deep reasoning before answering (~30-90s). Switch to Gemini 2.0 Flash for instant replies!`, "info");
+  } else {
+    showToast(`Switched to ${modelObj.name} (${modelObj.speed || "100% Free"})`, "info");
+  }
+  return true;
+}
+
+function isAllowedModel(modelId) {
+  if (!modelId || typeof modelId !== "string") return false;
+  const trimmed = modelId.trim();
+  if (!trimmed) return false;
+  const lower = trimmed.toLowerCase();
+  if (lower.includes(":free") || lower.includes("openrouter")) return false;
+
+  // 1. If catalog is loaded, check against catalog or valid local Ollama model
+  if (Array.isArray(state.models) && state.models.length > 0) {
+    if (state.models.some(m => m.id === trimmed)) return true;
+    if (trimmed.startsWith("ollama/") && trimmed.length > 7) return true;
+    return false;
+  }
+
+  // 2. Fallback before catalog loads: check known free models or valid provider prefixes
+  const defaultChatModel = typeof DEFAULT_CHAT_MODEL !== "undefined" ? DEFAULT_CHAT_MODEL : "qwen/qwen3.8-27b";
+  const knownPrefixes = ["groq/", "cerebras/", "ollama/", "gemini-", "qwen/", "meta-llama/"];
+  const knownModels = [
+    defaultChatModel,
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+    "cerebras/llama3.1-8b",
+    "cerebras/llama3.1-70b",
+    "cerebras/llama-3.3-70b",
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "deepseek-r1-distill-llama-70b"
+  ];
+  if (knownModels.includes(trimmed)) return true;
+  if (knownPrefixes.some(p => trimmed.startsWith(p))) return true;
+
+  return false;
+}
+
+function updateActiveModelUI(modelId, provider) {
+  const resolveModelProvider = (id) => {
+    if (typeof inferProvider === "function") return inferProvider(id);
+    if (!id) return "groq";
+    if (id.startsWith("ollama/")) return "ollama";
+    if (id.startsWith("cerebras/")) return "cerebras";
+    if (id.startsWith("gemini-")) return "gemini";
+    return "groq";
+  };
+
+  const modelObj = (state.models || []).find(m => m.id === modelId) || {
+    id: modelId,
+    name: (modelId || "").split("/").pop().replace(":free", ""),
+    provider: provider || resolveModelProvider(modelId),
+    speed: "⚡ Free Tier",
+    color: "#10b981"
+  };
+
+  const defaultChatModel = typeof DEFAULT_CHAT_MODEL !== "undefined" ? DEFAULT_CHAT_MODEL : "qwen/qwen3.8-27b";
+  const isBest = modelId === defaultChatModel;
   const safeColor = isSafeCssColor(modelObj.color) ? modelObj.color : "#10b981";
-  DOM.activeModelName.textContent = modelObj.name;
-  DOM.activeModelDot.style.background = safeColor;
-  DOM.activeModelDot.style.boxShadow = `0 0 8px ${safeColor}`;
 
-  const bestBadge = DOM.modelPillBtn.querySelector(".best-badge");
-  if (bestBadge) {
-    bestBadge.style.display = "inline-block";
-    bestBadge.textContent = isBest ? "⚡ Fastest" : (modelObj.speed || "Free");
+  if (DOM.activeModelName) DOM.activeModelName.textContent = modelObj.name;
+  if (DOM.activeModelDot) {
+    DOM.activeModelDot.style.background = safeColor;
+    DOM.activeModelDot.style.boxShadow = `0 0 8px ${safeColor}`;
+  }
+
+  if (DOM.modelPillBtn) {
+    const bestBadge = DOM.modelPillBtn.querySelector(".best-badge");
+    if (bestBadge) {
+      bestBadge.style.display = "inline-block";
+      bestBadge.textContent = isBest ? "⚡ Fastest" : (modelObj.speed || "Free");
+    }
   }
 
   // Update input chip
-  DOM.inputModelChip.querySelector(".chip-name").textContent = `${modelObj.name} (${modelObj.speed || "Free"})`;
-  DOM.inputModelChip.querySelector(".chip-dot").style.background = safeColor;
+  if (DOM.inputModelChip) {
+    const chipName = DOM.inputModelChip.querySelector(".chip-name");
+    if (chipName) chipName.textContent = `${modelObj.name} (${modelObj.speed || "Free"})`;
+    const chipDot = DOM.inputModelChip.querySelector(".chip-dot");
+    if (chipDot) chipDot.style.background = safeColor;
+  }
 
   // Update welcome hero
   if (DOM.welcomeActiveModel) {
@@ -803,15 +901,9 @@ function selectModel(modelId, provider) {
   }
 
   // Close dropdown
-  DOM.modelPillContainer.classList.remove("open");
+  if (DOM.modelPillContainer) DOM.modelPillContainer.classList.remove("open");
   renderModelsUI();
   if (typeof updateApiKeyBadge === "function") updateApiKeyBadge();
-
-  if (modelId.includes("r1")) {
-    showToast(`DeepSeek R1 selected. Note: Generates deep reasoning before answering (~30-90s). Switch to Gemini 2.0 Flash for instant replies!`, "info");
-  } else {
-    showToast(`Switched to ${modelObj.name} (${modelObj.speed || "100% Free"})`, "info");
-  }
 }
 
 function selectEmbeddingModel(modelId) {
@@ -1383,18 +1475,63 @@ async function autoSaveChatToPC(chat) {
     const hasPerm = await verifyPermission(state.dirHandle);
     if (!hasPerm) return;
 
-    // 1. Format Human-Readable Markdown
-    let md = `# ${chat.title}\n*Saved locally by RoroGPT on ${new Date().toLocaleString()}*\n*Model: ${chat.model || state.activeModel}*\n*Chat ID: ${chat.id}*\n\n---\n\n`;
+    // 1. Format Human-Readable Markdown with accurate model history and turn attribution
+    const currentModel = chat.model || DEFAULT_CHAT_MODEL;
+    const currentProvider = chat.provider || inferProvider(currentModel);
+    let md = `# ${chat.title}\n*Saved locally by RoroGPT on ${new Date().toLocaleString()}*\n*Current Selected Model: ${currentModel} (Provider: ${currentProvider})*\n*Chat ID: ${chat.id}*\n\n---\n\n`;
+
+    const usedModels = new Set();
     (chat.messages || []).forEach(m => {
-      md += `### ${m.role === "user" ? "👤 User" : "🤖 RoroGPT"}\n\n`;
+      if (m.role === "assistant" && m.model) {
+        usedModels.add(`${m.model}${m.provider ? " (" + m.provider + ")" : ""}`);
+      }
+    });
+    if (usedModels.size > 0) {
+      md += `**Model History:** ${Array.from(usedModels).join(", ")}\n\n---\n\n`;
+    }
+
+    (chat.messages || []).forEach(m => {
+      if (m.role === "user") {
+        md += `### 👤 User\n\n`;
+      } else {
+        const modelLabel = m.model || "unknown/legacy";
+        const providerLabel = m.provider ? ` • Provider: ${m.provider}` : "";
+        md += `### 🤖 RoroGPT (${modelLabel}${providerLabel})\n\n`;
+      }
       if (m.reasoning) {
         md += `> **Thinking Process:**\n> ${m.reasoning.replace(/\n/g, "\n> ")}\n\n`;
       }
       md += `${m.content}\n\n`;
     });
 
-    // 2. Format JSON representation
-    const jsonStr = JSON.stringify(chat, null, 2);
+    // 2. Format JSON representation (Preserve structured model metadata, strip secrets)
+    const exportChatData = {
+      id: chat.id,
+      title: chat.title,
+      createdAt: chat.createdAt,
+      model: currentModel,
+      provider: currentProvider,
+      messages: (chat.messages || []).map(m => {
+        const cleanMsg = {
+          role: m.role,
+          content: m.content
+        };
+        if (m.reasoning) cleanMsg.reasoning = m.reasoning;
+        if (m.role === "assistant") {
+          cleanMsg.model = m.model || "unknown/legacy";
+          cleanMsg.provider = m.provider || "unknown";
+          if (m.modelName) cleanMsg.modelName = m.modelName;
+        }
+        if (Array.isArray(m.attachments)) {
+          cleanMsg.attachments = m.attachments.map(att => {
+            const { base64Data, previewUrl, ...safeAtt } = att;
+            return safeAtt;
+          });
+        }
+        return cleanMsg;
+      })
+    };
+    const jsonStr = JSON.stringify(exportChatData, null, 2);
 
     const safeTitle = (chat.title || "chat").replace(/[^a-z0-9_\- ]/gi, "_").trim().slice(0, 36);
     const baseName = `${safeTitle}_${chat.id}`;
@@ -1488,6 +1625,7 @@ async function importChatsFromPC() {
     }
 
     if (importedCount > 0) {
+      await migrateLegacyChats();
       saveChatsToStorage();
       renderConversationsSidebar();
       showToast(`Imported ${importedCount} conversations from your PC!`, "success");
@@ -2670,8 +2808,42 @@ async function migrateLegacyChats() {
   if (!chats || typeof chats !== "object") return false;
 
   for (const chat of Object.values(chats)) {
+    if (!chat || typeof chat !== "object") continue;
+
+    // 1. Normalize conversation-level model metadata (Current turn default selection)
+    const defaultChatModel = typeof DEFAULT_CHAT_MODEL !== "undefined" ? DEFAULT_CHAT_MODEL : "qwen/qwen3.8-27b";
+    if (!chat.model || typeof chat.model !== "string" || chat.model.includes(":free")) {
+      chat.model = defaultChatModel;
+      chat.provider = inferProvider(defaultChatModel);
+      modified = true;
+    } else if (!chat.provider) {
+      chat.provider = inferProvider(chat.model);
+      modified = true;
+    }
+
     if (!Array.isArray(chat.messages)) continue;
     for (const msg of chat.messages) {
+      if (!msg || typeof msg !== "object") continue;
+
+      // 2. Normalize assistant turn model metadata
+      if (msg.role === "assistant") {
+        if (!msg.model || typeof msg.model !== "string") {
+          msg.model = "unknown/legacy";
+          msg.provider = "unknown";
+          msg.modelName = "Legacy Model";
+          modified = true;
+        } else if (msg.model.includes(":free")) {
+          msg.model = msg.model.replace(":free", "");
+          if (!msg.provider || msg.provider === "openrouter") {
+            msg.provider = inferProvider(msg.model);
+          }
+          modified = true;
+        } else if (!msg.provider) {
+          msg.provider = inferProvider(msg.model);
+          modified = true;
+        }
+      }
+
       if (Array.isArray(msg.attachments)) {
         for (const att of msg.attachments) {
           if (att.type === "image" && !att.blobId) {
@@ -2715,7 +2887,7 @@ async function migrateLegacyChats() {
 
   if (modified) {
     saveChatsToStorage();
-    console.log("[RoroGPT] Successfully migrated legacy image attachments to IndexedDB blobs.");
+    console.log("[RoroGPT] Successfully migrated legacy image attachments and model metadata.");
   }
   return modified;
 }
@@ -2762,6 +2934,7 @@ function createNewChat() {
     title: "New Conversation",
     createdAt: Date.now(),
     model: state.activeModel,
+    provider: state.activeProvider || inferProvider(state.activeModel),
     messages: []
   };
   state.currentChatId = chatId;
@@ -2781,6 +2954,16 @@ function loadChat(chatId) {
   } catch {}
 
   const chat = state.chats[chatId];
+  if (chat.model && isAllowedModel(chat.model)) {
+    state.activeModel = chat.model;
+    state.activeProvider = chat.provider || inferProvider(chat.model);
+    try {
+      localStorage.setItem("roro_active_model", chat.model);
+      localStorage.setItem("roro_active_provider", state.activeProvider);
+    } catch {}
+    updateActiveModelUI(chat.model, state.activeProvider);
+  }
+
   renderMessages(chat.messages);
   renderConversationsSidebar();
 
@@ -3053,8 +3236,18 @@ function appendMessageElement(msg, index) {
   if (!isUser) {
     const modelTag = document.createElement("span");
     modelTag.className = "bot-model-tag";
-    modelTag.style.cssText = "color: var(--accent-cyan); font-weight: 600;";
-    modelTag.textContent = msg.model || "RoroGPT";
+    const rawModel = msg.model || "unknown/legacy";
+    const catalogEntry = (state.models || []).find(m => m.id === rawModel);
+    const resolvedName = msg.modelName || (catalogEntry ? catalogEntry.name : null);
+
+    if (rawModel === "unknown/legacy") {
+      modelTag.textContent = "🤖 Legacy Model";
+      modelTag.title = "Generated by an unrecorded model in a previous version";
+    } else {
+      const displayLabel = resolvedName ? resolvedName : rawModel;
+      modelTag.textContent = `🤖 ${displayLabel}`;
+      modelTag.title = `Model: ${rawModel}${msg.provider ? ' | Provider: ' + msg.provider : ''}`;
+    }
     meta.appendChild(modelTag);
   }
 
@@ -3237,12 +3430,20 @@ async function sendMessage() {
   scrollToBottom();
   sfx.playPop();
 
-  // Create Bot Message container
+  // Capture request metadata upfront before asynchronous dispatch
+  const turnModel = state.activeModel;
+  const turnProvider = state.activeProvider || inferProvider(turnModel);
+  const catalogEntry = (state.models || []).find(m => m.id === turnModel);
+  const turnModelName = catalogEntry ? catalogEntry.name : turnModel.split("/").pop().replace(":free", "");
+
+  // Create Bot Message container with immutable turn-level model metadata
   const botMsg = {
     role: "assistant",
     content: "",
     reasoning: "",
-    model: state.activeModel
+    model: turnModel,
+    provider: turnProvider,
+    modelName: turnModelName
   };
   currentChat.messages.push(botMsg);
   const botIndex = currentChat.messages.length - 1;
@@ -3265,7 +3466,7 @@ async function sendMessage() {
   const timerInterval = setInterval(() => {
     elapsedSeconds++;
     if (!genText) return;
-    if (state.activeModel.includes("r1")) {
+    if (turnModel.includes("r1")) {
       genText.textContent = `DeepSeek R1 reasoning (${elapsedSeconds}s)... (Thinking models solve complex steps first)`;
     } else {
       genText.textContent = `RoroGPT is replying (${elapsedSeconds}s)...`;
@@ -3322,9 +3523,9 @@ async function sendMessage() {
       method: "POST",
       headers: chatHeaders,
       body: JSON.stringify({
-        provider: state.activeProvider || inferProvider(state.activeModel),
+        provider: turnProvider,
         messages: outboundMessages,
-        model: state.activeModel,
+        model: turnModel,
         systemPrompt: state.systemPrompt,
         skillPrompt: state.activeSkill ? state.activeSkill.instructions : "",
         temperature: state.temperature,
@@ -3353,7 +3554,12 @@ async function sendMessage() {
     function scheduleRender() {
       if (renderScheduled) return;
       renderScheduled = true;
-      requestAnimationFrame(() => {
+      const scheduleFn = typeof requestAnimationFrame === "function" 
+        ? requestAnimationFrame 
+        : (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function" 
+            ? window.requestAnimationFrame 
+            : (cb) => setTimeout(cb, 0));
+      scheduleFn(() => {
         renderScheduled = false;
         bubbleText.innerHTML = renderMarkdown(botMsg.content);
         scrollToBottom();
@@ -3394,6 +3600,22 @@ async function sendMessage() {
             }
           }
         }
+      }
+    }
+
+    if (buffer.trim().startsWith("data: ")) {
+      const payload = buffer.trim().slice(6);
+      if (payload !== "[DONE]") {
+        try {
+          const data = JSON.parse(payload);
+          if (data.reasoning) {
+            botMsg.reasoning += data.reasoning;
+            updateReasoningBox(botRow, botMsg.reasoning);
+          }
+          if (data.content) {
+            botMsg.content += data.content;
+          }
+        } catch {}
       }
     }
 
@@ -3993,19 +4215,89 @@ function exportConversation() {
     showToast("No messages to export", "info");
     return;
   }
-  let md = `# ${current.title}\n*Exported from RoroGPT on ${new Date().toLocaleString()}*\n*Model: ${current.model || state.activeModel}*\n\n---\n\n`;
+  const currentModel = current.model || DEFAULT_CHAT_MODEL;
+  const currentProvider = current.provider || inferProvider(currentModel);
+  let md = `# ${current.title}\n*Exported from RoroGPT on ${new Date().toLocaleString()}*\n*Current Selected Model: ${currentModel} (Provider: ${currentProvider})*\n*Chat ID: ${current.id}*\n\n---\n\n`;
+
+  const usedModels = new Set();
+  (current.messages || []).forEach(m => {
+    if (m.role === "assistant" && m.model) {
+      usedModels.add(`${m.model}${m.provider ? " (" + m.provider + ")" : ""}`);
+    }
+  });
+  if (usedModels.size > 0) {
+    md += `**Model History:** ${Array.from(usedModels).join(", ")}\n\n---\n\n`;
+  }
+
   current.messages.forEach(m => {
-    md += `### ${m.role === "user" ? "👤 You" : "🤖 RoroGPT"}\n\n${m.content}\n\n`;
+    if (m.role === "user") {
+      md += `### 👤 You\n\n`;
+    } else {
+      const modelLabel = m.model || "unknown/legacy";
+      const providerLabel = m.provider ? ` • Provider: ${m.provider}` : "";
+      md += `### 🤖 RoroGPT (${modelLabel}${providerLabel})\n\n`;
+    }
+    if (m.reasoning) {
+      md += `> **Thinking Process:**\n> ${m.reasoning.replace(/\n/g, "\n> ")}\n\n`;
+    }
+    md += `${m.content}\n\n`;
   });
 
   const blob = new Blob([md], { type: "text/markdown;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${current.title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_export.md`;
+  const safeExportTitle = (current.title || "conversation").replace(/[^a-z0-9_\-]/gi, "_").toLowerCase().slice(0, 36);
+  a.download = `${safeExportTitle}_export.md`;
   a.click();
   URL.revokeObjectURL(url);
   showToast("Conversation exported as Markdown", "success");
+}
+
+function exportConversationJSON() {
+  const current = state.chats[state.currentChatId];
+  if (!current || current.messages.length === 0) {
+    showToast("No messages to export", "info");
+    return;
+  }
+  const currentModel = current.model || DEFAULT_CHAT_MODEL;
+  const currentProvider = current.provider || inferProvider(currentModel);
+  const exportChatData = {
+    id: current.id,
+    title: current.title,
+    createdAt: current.createdAt,
+    model: currentModel,
+    provider: currentProvider,
+    messages: (current.messages || []).map(m => {
+      const cleanMsg = {
+        role: m.role,
+        content: m.content
+      };
+      if (m.reasoning) cleanMsg.reasoning = m.reasoning;
+      if (m.role === "assistant") {
+        cleanMsg.model = m.model || "unknown/legacy";
+        cleanMsg.provider = m.provider || "unknown";
+        if (m.modelName) cleanMsg.modelName = m.modelName;
+      }
+      if (Array.isArray(m.attachments)) {
+        cleanMsg.attachments = m.attachments.map(att => {
+          const { base64Data, previewUrl, ...safeAtt } = att;
+          return safeAtt;
+        });
+      }
+      return cleanMsg;
+    })
+  };
+  const jsonStr = JSON.stringify(exportChatData, null, 2);
+  const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const safeExportTitle = (current.title || "conversation").replace(/[^a-z0-9_\-]/gi, "_").toLowerCase().slice(0, 36);
+  a.download = `${safeExportTitle}_export.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast("Conversation exported as JSON", "success");
 }
 
 // ==========================================================
