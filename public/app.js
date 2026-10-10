@@ -13,6 +13,18 @@ if (!initialModel || initialModel.includes("llama-3.1") || initialModel.includes
   localStorage.setItem("roro_active_model", DEFAULT_CHAT_MODEL);
 }
 
+// Theme default: Clean Daylight on start
+const savedTheme = localStorage.getItem("roro_theme");
+const defaultMigrated = localStorage.getItem("roro_theme_default_clean_light_v1");
+let initialTheme = "clean-light";
+if (!defaultMigrated) {
+  initialTheme = "clean-light";
+  localStorage.setItem("roro_theme_default_clean_light_v1", "true");
+  localStorage.setItem("roro_theme", "clean-light");
+} else if (savedTheme && savedTheme !== "candy-pop") {
+  initialTheme = savedTheme;
+}
+
 // State
 const state = {
   activeModel: initialModel,
@@ -20,7 +32,7 @@ const state = {
   apiKey: localStorage.getItem("roro_api_key") || "",
   systemPrompt: localStorage.getItem("roro_system_prompt") || "",
   temperature: parseFloat(localStorage.getItem("roro_temperature") || "0.7"),
-  currentTheme: (localStorage.getItem("roro_theme") === "candy-pop" ? "neon-aurora" : (localStorage.getItem("roro_theme") || "neon-aurora")),
+  currentTheme: initialTheme,
   soundEnabled: localStorage.getItem("roro_sfx") !== "false",
   currentChatId: null,
   chats: {},

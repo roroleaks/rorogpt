@@ -63,6 +63,7 @@ async function runTests() {
   assert(htmlContent.includes("creator-sidebar-avatar"), "Creator photo icon is present in sidebar");
   assert(!htmlContent.includes("footer-creator-credit"), "Bottom duplicate creator credit removed (no duplicate)");
   assert(htmlContent.includes("clean-light"), "Clean Daylight light theme is available in menu");
+  assert(htmlContent.includes('data-theme="clean-light"'), "Clean Daylight light theme is the default on start");
   assert(htmlContent.includes("emerald-matrix"), "Vibrant dark theme 'Emerald Matrix' is present in menu");
   assert(htmlContent.includes("sidebarBackdrop"), "Mobile sidebar backdrop overlay is present");
 
