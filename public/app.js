@@ -266,13 +266,97 @@ function escapeHTML(str) {
 }
 
 // ==========================================================
-// TOAST NOTIFICATIONS
+// SECURITY HELPERS (HIGH FIX 5)
+// ==========================================================
+
+/**
+ * Normalizes error messages: strips credential leaks, removes stack traces, and bounds length.
+ */
+function normalizeErrorMessage(input, maxLength = 300) {
+  if (!input) return "An unexpected error occurred.";
+  let msg = typeof input === "string" ? input : (input.message || String(input));
+
+  // Redact potential authorization header tokens or API keys
+  msg = msg.replace(/(?:bearer\s+|key=|token=|apikey=|secret=)[a-zA-Z0-9_\-\.]{12,}/gi, "[REDACTED_CREDENTIAL]");
+
+  // Strip V8 / browser stack trace paths (both newline and inline patterns)
+  if (msg.includes("\n    at ")) {
+    msg = msg.split("\n    at ")[0].trim();
+  } else if (msg.includes("\n  at ")) {
+    msg = msg.split("\n  at ")[0].trim();
+  } else if (msg.includes("\n at ")) {
+    msg = msg.split("\n at ")[0].trim();
+  }
+  msg = msg.replace(/\s+at\s+[a-zA-Z0-9_$.<>]+\s+\([^)]+\)/g, "").trim();
+
+  // Bound length to prevent DOM memory bloat or UI DOS
+  if (msg.length > maxLength) {
+    msg = msg.slice(0, maxLength) + "... (truncated)";
+  }
+  return msg;
+}
+
+/**
+ * Validates whether a URL is strictly safe for navigation or image rendering.
+ */
+function isSafeUrl(url, allowDataImage = false) {
+  if (!url || typeof url !== "string") return false;
+  const trimmed = url.trim();
+  const lower = trimmed.toLowerCase();
+
+  if (lower.startsWith("https://") || lower.startsWith("http://")) {
+    try {
+      const parsed = new URL(trimmed);
+      return parsed.protocol === "https:" || parsed.protocol === "http:";
+    } catch {
+      return false;
+    }
+  }
+
+  if (allowDataImage && lower.startsWith("data:image/")) {
+    return /^data:image\/(?:png|jpeg|jpg|gif|webp|svg\+xml);base64,[a-z0-9+/=]+$/i.test(trimmed);
+  }
+
+  return false;
+}
+
+/**
+ * Strict CSS color validator preventing arbitrary CSS property or expression injection.
+ */
+function isSafeCssColor(color) {
+  if (!color || typeof color !== "string") return false;
+  const trimmed = color.trim();
+  if (/^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(trimmed)) return true;
+  if (/^rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*(?:,\s*(?:0|1|0?\.\d+)\s*)?\)$/i.test(trimmed)) return true;
+  if (/^hsla?\(\s*\d+\s*,\s*\d+%\s*,\s*\d+%\s*(?:,\s*(?:0|1|0?\.\d+)\s*)?\)$/i.test(trimmed)) return true;
+  const SAFE_NAMED = new Set([
+    "transparent", "currentcolor", "inherit",
+    "black", "white", "gray", "red", "blue", "green", "purple", "cyan", "teal", "orange", "yellow"
+  ]);
+  if (SAFE_NAMED.has(trimmed.toLowerCase())) return true;
+  if (/^linear-gradient\(\s*(?:\d+deg|to\s+[a-z\s]+)\s*,\s*#[0-9a-f]{3,8}\s*,\s*#[0-9a-f]{3,8}\s*\)$/i.test(trimmed)) return true;
+  return false;
+}
+
+// ==========================================================
+// TOAST NOTIFICATIONS (SAFE DOM CONSTRUCTION - H5)
 // ==========================================================
 function showToast(message, type = "info") {
+  const safeType = ["success", "error", "info", "warning"].includes(type) ? type : "info";
   const toast = document.createElement("div");
-  toast.className = `toast ${type}`;
-  toast.innerHTML = `<span>${type === "success" ? "✅" : type === "error" ? "⚠️" : "ℹ️"}</span><span>${escapeHTML(message)}</span>`;
+  toast.className = `toast ${safeType}`;
+
+  const iconSpan = document.createElement("span");
+  iconSpan.textContent = safeType === "success" ? "✅" : safeType === "error" ? "⚠️" : "ℹ️";
+
+  const msgSpan = document.createElement("span");
+  msgSpan.className = "toast-msg";
+  msgSpan.textContent = normalizeErrorMessage(message);
+
+  toast.appendChild(iconSpan);
+  toast.appendChild(msgSpan);
   DOM.toastContainer.appendChild(toast);
+
   setTimeout(() => {
     toast.style.opacity = "0";
     setTimeout(() => toast.remove(), 250);
@@ -464,13 +548,46 @@ function renderMarkdown(rawText) {
 
     const header = document.createElement("div");
     header.className = "code-header";
-    header.innerHTML = `
-      <span class="code-lang">💻 ${escapeHTML(lang.toUpperCase())}</span>
-      <button class="copy-code-btn" title="Copy code">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-        <span>Copy</span>
-      </button>
-    `;
+
+    const langSpan = document.createElement("span");
+    langSpan.className = "code-lang";
+    langSpan.textContent = `💻 ${(lang || "code").toUpperCase()}`;
+
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "copy-code-btn";
+    copyBtn.title = "Copy code";
+    copyBtn.type = "button";
+
+    const copySvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    copySvg.setAttribute("width", "12");
+    copySvg.setAttribute("height", "12");
+    copySvg.setAttribute("viewBox", "0 0 24 24");
+    copySvg.setAttribute("fill", "none");
+    copySvg.setAttribute("stroke", "currentColor");
+    copySvg.setAttribute("stroke-width", "2");
+
+    const copyRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    copyRect.setAttribute("x", "9");
+    copyRect.setAttribute("y", "9");
+    copyRect.setAttribute("width", "13");
+    copyRect.setAttribute("height", "13");
+    copyRect.setAttribute("rx", "2");
+    copyRect.setAttribute("ry", "2");
+
+    const copyPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    copyPath.setAttribute("d", "M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1");
+
+    copySvg.appendChild(copyRect);
+    copySvg.appendChild(copyPath);
+
+    const copyLabel = document.createElement("span");
+    copyLabel.textContent = "Copy";
+
+    copyBtn.appendChild(copySvg);
+    copyBtn.appendChild(copyLabel);
+
+    header.appendChild(langSpan);
+    header.appendChild(copyBtn);
 
     pre.parentNode.insertBefore(wrapper, pre);
     wrapper.appendChild(header);
@@ -617,9 +734,10 @@ function selectModel(modelId) {
 
   const isBest = modelId === DEFAULT_CHAT_MODEL;
 
+  const safeColor = isSafeCssColor(modelObj.color) ? modelObj.color : "#10b981";
   DOM.activeModelName.textContent = modelObj.name;
-  DOM.activeModelDot.style.background = modelObj.color || "#10b981";
-  DOM.activeModelDot.style.boxShadow = `0 0 8px ${modelObj.color || "#10b981"}`;
+  DOM.activeModelDot.style.background = safeColor;
+  DOM.activeModelDot.style.boxShadow = `0 0 8px ${safeColor}`;
 
   const bestBadge = DOM.modelPillBtn.querySelector(".best-badge");
   if (bestBadge) {
@@ -629,7 +747,7 @@ function selectModel(modelId) {
 
   // Update input chip
   DOM.inputModelChip.querySelector(".chip-name").textContent = `${modelObj.name} (${modelObj.speed || "Free"})`;
-  DOM.inputModelChip.querySelector(".chip-dot").style.background = modelObj.color || "#10b981";
+  DOM.inputModelChip.querySelector(".chip-dot").style.background = safeColor;
 
   // Update welcome hero
   if (DOM.welcomeActiveModel) {
@@ -657,74 +775,163 @@ function selectEmbeddingModel(modelId) {
 
 function renderModelsUI() {
   // Dropdown list in topbar
-  DOM.dropdownModelsList.innerHTML = "";
+  if (!DOM.dropdownModelsList) return;
+  DOM.dropdownModelsList.replaceChildren();
+
   state.models.forEach(m => {
     const isSelected = m.id === state.activeModel;
     const isBest = m.id === DEFAULT_CHAT_MODEL;
 
     const item = document.createElement("div");
     item.className = `model-option-item ${isSelected ? "selected" : ""}`;
-    item.innerHTML = `
-      <div class="option-left">
-        <span class="option-icon">${m.icon || "✨"}</span>
-        <div class="option-info">
-          <span class="option-name">${m.name}</span>
-          <span class="option-desc">${m.speed ? `${m.speed} • ` : ""}${m.description || m.tagline || ""}</span>
-        </div>
-      </div>
-      <span class="option-badge" style="background: ${isBest ? "linear-gradient(135deg, #10b981, #06b6d4)" : "rgba(255, 255, 255, 0.1)"}">
-        ${isBest ? "⚡ Fastest" : (m.badge || "Free")}
-      </span>
-    `;
+
+    const optionLeft = document.createElement("div");
+    optionLeft.className = "option-left";
+
+    const iconSpan = document.createElement("span");
+    iconSpan.className = "option-icon";
+    iconSpan.textContent = m.icon || "✨";
+
+    const optionInfo = document.createElement("div");
+    optionInfo.className = "option-info";
+
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "option-name";
+    nameSpan.textContent = m.name || m.id || "Model";
+
+    const descSpan = document.createElement("span");
+    descSpan.className = "option-desc";
+    const speedPart = m.speed ? `${m.speed} • ` : "";
+    descSpan.textContent = `${speedPart}${m.description || m.tagline || ""}`;
+
+    optionInfo.appendChild(nameSpan);
+    optionInfo.appendChild(descSpan);
+    optionLeft.appendChild(iconSpan);
+    optionLeft.appendChild(optionInfo);
+
+    const badgeSpan = document.createElement("span");
+    badgeSpan.className = "option-badge";
+    if (isBest) {
+      badgeSpan.style.background = "linear-gradient(135deg, #10b981, #06b6d4)";
+      badgeSpan.textContent = "⚡ Fastest";
+    } else {
+      badgeSpan.style.background = "rgba(255, 255, 255, 0.1)";
+      badgeSpan.textContent = m.badge || "Free";
+    }
+
+    item.appendChild(optionLeft);
+    item.appendChild(badgeSpan);
     item.addEventListener("click", () => selectModel(m.id));
     DOM.dropdownModelsList.appendChild(item);
   });
 
   // Full models grid in Modal
-  DOM.fullModelsGrid.innerHTML = "";
+  if (!DOM.fullModelsGrid) return;
+  DOM.fullModelsGrid.replaceChildren();
+
   state.models.forEach(m => {
     const isSelected = m.id === state.activeModel;
     const isBest = m.id === DEFAULT_CHAT_MODEL;
 
     const card = document.createElement("div");
     card.className = `model-card ${isSelected ? "active" : ""}`;
-    card.innerHTML = `
-      <div class="card-top">
-        <div class="card-name-row">
-          <span>${m.icon || "✨"}</span>
-          <span class="card-m-name">${m.name}</span>
-        </div>
-        <span class="card-badge" style="background: ${isBest ? "linear-gradient(135deg, #10b981, #06b6d4)" : (m.color || "#8b5cf6")}">
-          ${isBest ? "★ Fastest & Best Default" : (m.badge || "Free")}
-        </span>
-      </div>
-      <div class="card-speed" style="font-size: 0.72rem; color: #10b981; font-weight: 700;">${m.speed || "100% Free"}</div>
-      <div class="card-m-desc">${m.description || m.tagline}</div>
-      <div style="font-size: 0.7rem; color: var(--text-faint); font-family: var(--font-mono);">${m.id}</div>
-    `;
+
+    const cardTop = document.createElement("div");
+    cardTop.className = "card-top";
+
+    const nameRow = document.createElement("div");
+    nameRow.className = "card-name-row";
+
+    const iconSpan = document.createElement("span");
+    iconSpan.textContent = m.icon || "✨";
+
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "card-m-name";
+    nameSpan.textContent = m.name || m.id || "Model";
+
+    nameRow.appendChild(iconSpan);
+    nameRow.appendChild(nameSpan);
+
+    const badgeSpan = document.createElement("span");
+    badgeSpan.className = "card-badge";
+    if (isBest) {
+      badgeSpan.style.background = "linear-gradient(135deg, #10b981, #06b6d4)";
+      badgeSpan.textContent = "★ Fastest & Best Default";
+    } else {
+      const safeColor = isSafeCssColor(m.color) ? m.color : "#8b5cf6";
+      badgeSpan.style.background = safeColor;
+      badgeSpan.textContent = m.badge || "Free";
+    }
+
+    cardTop.appendChild(nameRow);
+    cardTop.appendChild(badgeSpan);
+
+    const speedDiv = document.createElement("div");
+    speedDiv.className = "card-speed";
+    speedDiv.style.cssText = "font-size: 0.72rem; color: #10b981; font-weight: 700;";
+    speedDiv.textContent = m.speed || "100% Free";
+
+    const descDiv = document.createElement("div");
+    descDiv.className = "card-m-desc";
+    descDiv.textContent = m.description || m.tagline || "";
+
+    const idDiv = document.createElement("div");
+    idDiv.style.cssText = "font-size: 0.7rem; color: var(--text-faint); font-family: var(--font-mono);";
+    idDiv.textContent = m.id || "";
+
+    card.appendChild(cardTop);
+    card.appendChild(speedDiv);
+    card.appendChild(descDiv);
+    card.appendChild(idDiv);
+
     card.addEventListener("click", () => selectModel(m.id));
     DOM.fullModelsGrid.appendChild(card);
   });
 }
 
 function renderEmbeddingsUI() {
-  DOM.embeddingsGrid.innerHTML = "";
+  if (!DOM.embeddingsGrid) return;
+  DOM.embeddingsGrid.replaceChildren();
+
   state.embeddingModels.forEach(m => {
     const isSelected = m.id === state.activeEmbeddingModel;
     const isBest = m.id === DEFAULT_EMBEDDING_MODEL;
 
     const card = document.createElement("div");
     card.className = `model-card ${isSelected ? "active" : ""}`;
-    card.innerHTML = `
-      <div class="card-top">
-        <span class="card-m-name">${m.name || m.id}</span>
-        <span class="card-badge" style="background: ${isBest ? "linear-gradient(135deg, #10b981, #06b6d4)" : "#3b82f6"}">
-          ${isBest ? "★ Best Default" : `${m.dimensions || 1536}d`}
-        </span>
-      </div>
-      <div class="card-m-desc">${m.description || "Vector embedding representation model."}</div>
-      <div style="font-size: 0.7rem; color: var(--text-faint); font-family: var(--font-mono);">${m.id}</div>
-    `;
+
+    const cardTop = document.createElement("div");
+    cardTop.className = "card-top";
+
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "card-m-name";
+    nameSpan.textContent = m.name || m.id;
+
+    const badgeSpan = document.createElement("span");
+    badgeSpan.className = "card-badge";
+    if (isBest) {
+      badgeSpan.style.background = "linear-gradient(135deg, #10b981, #06b6d4)";
+      badgeSpan.textContent = "★ Best Default";
+    } else {
+      badgeSpan.style.background = "#3b82f6";
+      badgeSpan.textContent = `${m.dimensions || 1536}d`;
+    }
+
+    cardTop.appendChild(nameSpan);
+    cardTop.appendChild(badgeSpan);
+
+    const descDiv = document.createElement("div");
+    descDiv.className = "card-m-desc";
+    descDiv.textContent = m.description || "Vector embedding representation model.";
+
+    const idDiv = document.createElement("div");
+    idDiv.style.cssText = "font-size: 0.7rem; color: var(--text-faint); font-family: var(--font-mono);";
+    idDiv.textContent = m.id || "";
+
+    card.appendChild(cardTop);
+    card.appendChild(descDiv);
+    card.appendChild(idDiv);
+
     card.addEventListener("click", () => selectEmbeddingModel(m.id));
     DOM.embeddingsGrid.appendChild(card);
   });
@@ -1004,7 +1211,7 @@ function renderAttachmentsTray() {
   if (!DOM.attachmentsTray) return;
   if (state.attachments.length === 0) {
     DOM.attachmentsTray.style.display = "none";
-    DOM.attachmentsTray.innerHTML = "";
+    DOM.attachmentsTray.replaceChildren();
     if (DOM.sendBtn) {
       DOM.sendBtn.disabled = DOM.chatInput.value.trim().length === 0 || state.isGenerating;
     }
@@ -1012,46 +1219,93 @@ function renderAttachmentsTray() {
   }
 
   DOM.attachmentsTray.style.display = "flex";
-  DOM.attachmentsTray.innerHTML = "";
+  DOM.attachmentsTray.replaceChildren();
 
   state.attachments.forEach(att => {
     const chip = document.createElement("div");
     chip.className = `attachment-chip ${att.type}`;
     chip.setAttribute("data-id", att.id);
 
-    let visual = "";
+    // Visual element: Safe image thumbnail or icon
     if (att.type === "image" && (att.previewUrl || att.base64Data)) {
       const rawSrc = (att.previewUrl || att.base64Data).trim();
-      const lower = rawSrc.toLowerCase();
-      if (lower.startsWith("data:image/") || lower.startsWith("http://") || lower.startsWith("https://")) {
-        visual = `<img src="${escapeHTML(rawSrc)}" class="chip-thumbnail" alt="${escapeHTML(att.name)}">`;
+      if (isSafeUrl(rawSrc, true)) {
+        const thumb = document.createElement("img");
+        thumb.className = "chip-thumbnail";
+        thumb.src = rawSrc;
+        thumb.alt = att.name || "Attachment";
+        chip.appendChild(thumb);
       } else {
-        visual = `<span class="chip-icon">🖼️</span>`;
+        const iconSpan = document.createElement("span");
+        iconSpan.className = "chip-icon";
+        iconSpan.textContent = "🖼️";
+        chip.appendChild(iconSpan);
       }
     } else {
-      const icon = att.type === "weblink" ? "🔗" : att.type === "skill" ? "⚡" : "📄";
-      visual = `<span class="chip-icon">${icon}</span>`;
+      const iconSpan = document.createElement("span");
+      iconSpan.className = "chip-icon";
+      iconSpan.textContent = att.type === "weblink" ? "🔗" : att.type === "skill" ? "⚡" : "📄";
+      chip.appendChild(iconSpan);
     }
 
-    chip.innerHTML = `
-      ${visual}
-      <div class="chip-info">
-        <span class="chip-name" title="${escapeHTML(att.name)}">${escapeHTML(att.name)}</span>
-        <span class="chip-meta">${escapeHTML(att.meta || "")}</span>
-      </div>
-      <div class="chip-actions">
-        <button class="chip-btn chip-save-btn" title="Save to Personal Library" type="button">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-        </button>
-        <button class="chip-btn chip-remove-btn" title="Remove attachment" type="button">&times;</button>
-      </div>
-    `;
+    // Chip Info
+    const infoDiv = document.createElement("div");
+    infoDiv.className = "chip-info";
 
-    chip.querySelector(".chip-remove-btn").addEventListener("click", () => {
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "chip-name";
+    nameSpan.title = att.name || "";
+    nameSpan.textContent = att.name || "Attachment";
+
+    const metaSpan = document.createElement("span");
+    metaSpan.className = "chip-meta";
+    metaSpan.textContent = att.meta || "";
+
+    infoDiv.appendChild(nameSpan);
+    infoDiv.appendChild(metaSpan);
+    chip.appendChild(infoDiv);
+
+    // Actions
+    const actionsDiv = document.createElement("div");
+    actionsDiv.className = "chip-actions";
+
+    const saveBtn = document.createElement("button");
+    saveBtn.className = "chip-btn chip-save-btn";
+    saveBtn.title = "Save to Personal Library";
+    saveBtn.type = "button";
+
+    const saveSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    saveSvg.setAttribute("viewBox", "0 0 24 24");
+    saveSvg.setAttribute("fill", "none");
+    saveSvg.setAttribute("stroke", "currentColor");
+    saveSvg.setAttribute("stroke-width", "2");
+
+    const p1 = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    p1.setAttribute("d", "M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z");
+    const p2 = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+    p2.setAttribute("points", "17 21 17 13 7 13 7 21");
+    const p3 = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+    p3.setAttribute("points", "7 3 7 8 15 8");
+    saveSvg.appendChild(p1);
+    saveSvg.appendChild(p2);
+    saveSvg.appendChild(p3);
+    saveBtn.appendChild(saveSvg);
+
+    const removeBtn = document.createElement("button");
+    removeBtn.className = "chip-btn chip-remove-btn";
+    removeBtn.title = "Remove attachment";
+    removeBtn.type = "button";
+    removeBtn.textContent = "×";
+
+    actionsDiv.appendChild(saveBtn);
+    actionsDiv.appendChild(removeBtn);
+    chip.appendChild(actionsDiv);
+
+    removeBtn.addEventListener("click", () => {
       removeAttachment(att.id);
     });
 
-    chip.querySelector(".chip-save-btn").addEventListener("click", () => {
+    saveBtn.addEventListener("click", () => {
       saveAttachmentToLibrary(att.id);
     });
 
@@ -1222,7 +1476,7 @@ async function openCameraModal() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     if (DOM.cameraErrorBanner) {
       DOM.cameraErrorBanner.style.display = "block";
-      DOM.cameraErrorBanner.innerHTML = "Camera API is not supported in this browser. Please use <strong>Upload photos</strong> instead.";
+      DOM.cameraErrorBanner.textContent = "Camera API is not supported in this browser. Please use 'Upload photos' instead.";
     }
     return;
   }
@@ -1236,7 +1490,7 @@ async function openCameraModal() {
   } catch (err) {
     if (DOM.cameraErrorBanner) {
       DOM.cameraErrorBanner.style.display = "block";
-      DOM.cameraErrorBanner.innerHTML = `Camera access error: ${escapeHTML(err.message)}.<br>Please allow camera permissions or use <strong>Upload photos</strong>.`;
+      DOM.cameraErrorBanner.textContent = `Camera access error: ${normalizeErrorMessage(err.message)}. Please allow camera permissions or use 'Upload photos'.`;
     }
   }
 }
@@ -1321,7 +1575,13 @@ async function fetchAndAttachWebLink() {
 
   DOM.webLinkStatusBox.style.display = "block";
   DOM.webLinkStatusBox.className = "weblink-status-box loading";
-  DOM.webLinkStatusBox.innerHTML = `<span class="pulsing-dot"></span> <span>Fetching and analyzing webpage content safely...</span>`;
+  DOM.webLinkStatusBox.replaceChildren();
+  const dot = document.createElement("span");
+  dot.className = "pulsing-dot";
+  const statusMsg = document.createElement("span");
+  statusMsg.textContent = "Fetching and analyzing webpage content safely...";
+  DOM.webLinkStatusBox.appendChild(dot);
+  DOM.webLinkStatusBox.appendChild(statusMsg);
   DOM.fetchAndAttachUrlBtn.disabled = true;
 
   try {
@@ -1342,7 +1602,16 @@ async function fetchAndAttachWebLink() {
     }
 
     DOM.webLinkStatusBox.className = "weblink-status-box success";
-    DOM.webLinkStatusBox.innerHTML = `✅ Successfully extracted "<strong>${escapeHTML(data.title)}</strong>" (${data.content.length} chars).`;
+    DOM.webLinkStatusBox.replaceChildren();
+    const succIcon = document.createElement("span");
+    succIcon.textContent = "✅ ";
+    const strongTitle = document.createElement("strong");
+    strongTitle.textContent = data.title || siteHostname;
+    const contentLen = data.content ? data.content.length : 0;
+    DOM.webLinkStatusBox.appendChild(succIcon);
+    DOM.webLinkStatusBox.appendChild(document.createTextNode('Successfully extracted "'));
+    DOM.webLinkStatusBox.appendChild(strongTitle);
+    DOM.webLinkStatusBox.appendChild(document.createTextNode(`" (${contentLen} chars).`));
 
     let siteHostname = "";
     try {
@@ -1376,7 +1645,8 @@ async function fetchAndAttachWebLink() {
     }, 600);
   } catch (err) {
     DOM.webLinkStatusBox.className = "weblink-status-box error";
-    DOM.webLinkStatusBox.innerHTML = `⚠️ ${escapeHTML(err.message)}`;
+    DOM.webLinkStatusBox.replaceChildren();
+    DOM.webLinkStatusBox.textContent = `⚠️ ${normalizeErrorMessage(err.message)}`;
     showToast(err.message, "error");
   } finally {
     DOM.fetchAndAttachUrlBtn.disabled = false;
@@ -1425,11 +1695,15 @@ async function initSkills() {
 
 function renderSkillsList() {
   if (!DOM.skillsListContainer) return;
-  DOM.skillsListContainer.innerHTML = "";
+  DOM.skillsListContainer.replaceChildren();
   if (DOM.savedSkillsCount) DOM.savedSkillsCount.textContent = state.skills.length;
 
   if (state.skills.length === 0) {
-    DOM.skillsListContainer.innerHTML = `<div class="empty-hint" style="padding:20px; text-align:center; color:var(--text-muted);">No skills created yet. Use the "Create or Import Skill" tab above to add reusable AI instructions!</div>`;
+    const hint = document.createElement("div");
+    hint.className = "empty-hint";
+    hint.style.cssText = "padding:20px; text-align:center; color:var(--text-muted);";
+    hint.textContent = "No skills created yet. Use the \"Create or Import Skill\" tab above to add reusable AI instructions!";
+    DOM.skillsListContainer.appendChild(hint);
     return;
   }
 
@@ -1437,24 +1711,61 @@ function renderSkillsList() {
     const isActive = state.activeSkill && state.activeSkill.id === skill.id;
     const card = document.createElement("div");
     card.className = `skill-card ${isActive ? "active" : ""}`;
-    card.innerHTML = `
-      <div class="skill-card-main">
-        <div class="skill-card-header">
-          <span class="skill-card-title">${escapeHTML(skill.name)}</span>
-          ${isActive ? `<span class="skill-active-badge">Active in Chat</span>` : ""}
-        </div>
-        <div class="skill-card-desc">${escapeHTML(skill.description || "Custom AI instructions")}</div>
-      </div>
-      <div class="skill-card-actions">
-        <button class="btn btn-sm ${isActive ? "btn-secondary" : "btn-primary"} skill-toggle-btn">
-          ${isActive ? "Deactivate" : "⚡ Activate"}
-        </button>
-        <button class="btn btn-sm btn-secondary skill-preview-btn" title="View Instructions">👁️ Preview</button>
-        <button class="icon-btn skill-delete-btn" title="Delete skill" style="color:var(--text-faint);">&times;</button>
-      </div>
-    `;
 
-    card.querySelector(".skill-toggle-btn").addEventListener("click", () => {
+    const mainDiv = document.createElement("div");
+    mainDiv.className = "skill-card-main";
+
+    const headerDiv = document.createElement("div");
+    headerDiv.className = "skill-card-header";
+
+    const titleSpan = document.createElement("span");
+    titleSpan.className = "skill-card-title";
+    titleSpan.textContent = skill.name || "Custom Skill";
+
+    headerDiv.appendChild(titleSpan);
+    if (isActive) {
+      const activeBadge = document.createElement("span");
+      activeBadge.className = "skill-active-badge";
+      activeBadge.textContent = "Active in Chat";
+      headerDiv.appendChild(activeBadge);
+    }
+
+    const descDiv = document.createElement("div");
+    descDiv.className = "skill-card-desc";
+    descDiv.textContent = skill.description || "Custom AI instructions";
+
+    mainDiv.appendChild(headerDiv);
+    mainDiv.appendChild(descDiv);
+
+    const actionsDiv = document.createElement("div");
+    actionsDiv.className = "skill-card-actions";
+
+    const toggleBtn = document.createElement("button");
+    toggleBtn.className = `btn btn-sm ${isActive ? "btn-secondary" : "btn-primary"} skill-toggle-btn`;
+    toggleBtn.type = "button";
+    toggleBtn.textContent = isActive ? "Deactivate" : "⚡ Activate";
+
+    const previewBtn = document.createElement("button");
+    previewBtn.className = "btn btn-sm btn-secondary skill-preview-btn";
+    previewBtn.title = "View Instructions";
+    previewBtn.type = "button";
+    previewBtn.textContent = "👁️ Preview";
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.className = "icon-btn skill-delete-btn";
+    deleteBtn.title = "Delete skill";
+    deleteBtn.style.color = "var(--text-faint)";
+    deleteBtn.type = "button";
+    deleteBtn.textContent = "×";
+
+    actionsDiv.appendChild(toggleBtn);
+    actionsDiv.appendChild(previewBtn);
+    actionsDiv.appendChild(deleteBtn);
+
+    card.appendChild(mainDiv);
+    card.appendChild(actionsDiv);
+
+    toggleBtn.addEventListener("click", () => {
       if (isActive) {
         deactivateSkill();
       } else {
@@ -1462,11 +1773,14 @@ function renderSkillsList() {
       }
     });
 
-    card.querySelector(".skill-preview-btn").addEventListener("click", () => {
-      openPreviewModal("⚡", skill.name, `<pre style="white-space:pre-wrap; font-family:var(--font-mono); font-size:0.85rem;">${escapeHTML(skill.instructions)}</pre>`, skill);
+    previewBtn.addEventListener("click", () => {
+      const pre = document.createElement("pre");
+      pre.style.cssText = "white-space:pre-wrap; font-family:var(--font-mono); font-size:0.85rem;";
+      pre.textContent = skill.instructions || "";
+      openPreviewModal("⚡", skill.name, pre, skill);
     });
 
-    card.querySelector(".skill-delete-btn").addEventListener("click", async () => {
+    deleteBtn.addEventListener("click", async () => {
       if (confirm(`Delete skill "${skill.name}"?`)) {
         await idbDelete(IDB_STORE_SKILLS, skill.id);
         if (state.activeSkill && state.activeSkill.id === skill.id) {
@@ -1633,7 +1947,7 @@ async function loadLibrary() {
 
 function renderLibraryGrid() {
   if (!DOM.libraryGridContainer) return;
-  DOM.libraryGridContainer.innerHTML = "";
+  DOM.libraryGridContainer.replaceChildren();
 
   const query = (DOM.librarySearchInput.value || "").toLowerCase().trim();
   const filter = state.activeLibFilter || "all";
@@ -1650,13 +1964,23 @@ function renderLibraryGrid() {
   });
 
   if (filtered.length === 0) {
-    DOM.libraryGridContainer.innerHTML = `
-      <div style="grid-column: 1 / -1; padding: 36px 16px; text-align: center; color: var(--text-muted);">
-        <div style="font-size: 2rem; margin-bottom: 8px;">📚</div>
-        <p style="font-weight: 600; margin-bottom: 4px;">No library items found</p>
-        <span style="font-size: 0.8rem;">Attach documents, photos, links, or skills in the composer and click the 💾 save icon to store them here permanently!</span>
-      </div>
-    `;
+    const emptyBox = document.createElement("div");
+    emptyBox.style.cssText = "grid-column: 1 / -1; padding: 36px 16px; text-align: center; color: var(--text-muted);";
+
+    const emptyIcon = document.createElement("div");
+    emptyIcon.style.cssText = "font-size: 2rem; margin-bottom: 8px;";
+    emptyIcon.textContent = "📚";
+
+    const emptyTitle = document.createElement("p");
+    emptyTitle.style.cssText = "font-weight: 600; margin-bottom: 4px;";
+    emptyTitle.textContent = "No library items found";
+
+    const emptyHint = document.createElement("span");
+    emptyHint.style.cssText = "font-size: 0.8rem;";
+    emptyHint.textContent = "Attach documents, photos, links, or skills in the composer and click the 💾 save icon to store them here permanently!";
+
+    emptyBox.append(emptyIcon, emptyTitle, emptyHint);
+    DOM.libraryGridContainer.appendChild(emptyBox);
     return;
   }
 
@@ -1666,44 +1990,67 @@ function renderLibraryGrid() {
     const card = document.createElement("div");
     card.className = "lib-card";
 
-    let visual = "";
+    const topDiv = document.createElement("div");
+    topDiv.className = "lib-card-top";
+
     if (item.type === "image" && (item.previewUrl || item.base64Data)) {
       const rawSrc = (item.previewUrl || item.base64Data).trim();
-      const lower = rawSrc.toLowerCase();
-      if (lower.startsWith("data:image/") || lower.startsWith("http://") || lower.startsWith("https://")) {
-        visual = `<img src="${escapeHTML(rawSrc)}" class="lib-card-img-thumb" alt="${escapeHTML(item.name)}">`;
+      if (isSafeUrl(rawSrc, true)) {
+        const img = document.createElement("img");
+        img.src = rawSrc;
+        img.className = "lib-card-img-thumb";
+        img.alt = item.name || "Library Image";
+        topDiv.appendChild(img);
       } else {
-        visual = `<span class="lib-card-icon">🖼️</span>`;
+        const iconSpan = document.createElement("span");
+        iconSpan.className = "lib-card-icon";
+        iconSpan.textContent = "🖼️";
+        topDiv.appendChild(iconSpan);
       }
     } else {
       const icon = item.type === "weblink" ? "🔗" : item.type === "skill" ? "⚡" : "📄";
-      visual = `<span class="lib-card-icon">${icon}</span>`;
+      const iconSpan = document.createElement("span");
+      iconSpan.className = "lib-card-icon";
+      iconSpan.textContent = icon;
+      topDiv.appendChild(iconSpan);
     }
 
-    card.innerHTML = `
-      <div class="lib-card-top">
-        ${visual}
-        <div class="lib-card-title-box">
-          <span class="lib-card-title" title="${escapeHTML(item.name)}">${escapeHTML(item.name)}</span>
-          <span class="lib-card-meta">${escapeHTML(item.meta || item.type)}</span>
-        </div>
-      </div>
-      <div class="lib-card-actions">
-        <button class="btn btn-sm btn-primary lib-attach-btn" title="Add to current chat">➕ Attach</button>
-        <button class="btn btn-sm btn-secondary lib-preview-btn" title="Preview item">👁️ View</button>
-        <button class="icon-btn lib-delete-btn" title="Delete from Library" style="color:var(--text-faint);">&times;</button>
-      </div>
-    `;
+    const titleBox = document.createElement("div");
+    titleBox.className = "lib-card-title-box";
 
-    card.querySelector(".lib-attach-btn").addEventListener("click", () => {
-      attachLibraryItemToChat(item);
-    });
+    const titleSpan = document.createElement("span");
+    titleSpan.className = "lib-card-title";
+    titleSpan.title = item.name || "Untitled";
+    titleSpan.textContent = item.name || "Untitled";
 
-    card.querySelector(".lib-preview-btn").addEventListener("click", () => {
-      previewLibraryItem(item);
-    });
+    const metaSpan = document.createElement("span");
+    metaSpan.className = "lib-card-meta";
+    metaSpan.textContent = item.meta || item.type || "";
 
-    card.querySelector(".lib-delete-btn").addEventListener("click", async () => {
+    titleBox.append(titleSpan, metaSpan);
+    topDiv.appendChild(titleBox);
+
+    const actionsDiv = document.createElement("div");
+    actionsDiv.className = "lib-card-actions";
+
+    const attachBtn = document.createElement("button");
+    attachBtn.className = "btn btn-sm btn-primary lib-attach-btn";
+    attachBtn.title = "Add to current chat";
+    attachBtn.textContent = "➕ Attach";
+    attachBtn.addEventListener("click", () => attachLibraryItemToChat(item));
+
+    const previewBtn = document.createElement("button");
+    previewBtn.className = "btn btn-sm btn-secondary lib-preview-btn";
+    previewBtn.title = "Preview item";
+    previewBtn.textContent = "👁️ View";
+    previewBtn.addEventListener("click", () => previewLibraryItem(item));
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.className = "icon-btn lib-delete-btn";
+    deleteBtn.title = "Delete from Library";
+    deleteBtn.style.color = "var(--text-faint)";
+    deleteBtn.textContent = "×";
+    deleteBtn.addEventListener("click", async () => {
       if (confirm(`Remove "${item.name}" from your Personal Library?`)) {
         await idbDelete(IDB_STORE_LIB, item.id);
         await loadLibrary();
@@ -1711,6 +2058,8 @@ function renderLibraryGrid() {
       }
     });
 
+    actionsDiv.append(attachBtn, previewBtn, deleteBtn);
+    card.append(topDiv, actionsDiv);
     DOM.libraryGridContainer.appendChild(card);
   });
 }
@@ -1728,31 +2077,48 @@ function attachLibraryItemToChat(item) {
 }
 
 function previewLibraryItem(item) {
-  let contentHtml = "";
+  let contentNode;
   if (item.type === "image") {
     const rawSrc = (item.previewUrl || item.base64Data || "").trim();
-    const lower = rawSrc.toLowerCase();
-    if (lower.startsWith("data:image/") || lower.startsWith("http://") || lower.startsWith("https://")) {
-      contentHtml = `<div style="text-align:center;"><img src="${escapeHTML(rawSrc)}" style="max-width:100%; max-height:480px; border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,0.3);"></div>`;
+    if (isSafeUrl(rawSrc, true)) {
+      const container = document.createElement("div");
+      container.style.textAlign = "center";
+      const img = document.createElement("img");
+      img.src = rawSrc;
+      img.alt = item.name || "Preview Image";
+      img.style.cssText = "max-width:100%; max-height:480px; border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,0.3);";
+      container.appendChild(img);
+      contentNode = container;
     } else {
-      contentHtml = `<p>Invalid or unsupported image preview source.</p>`;
+      const p = document.createElement("p");
+      p.textContent = "Invalid or unsupported image preview source.";
+      contentNode = p;
     }
-  } else if (item.textContent) {
-    contentHtml = `<pre style="white-space:pre-wrap; font-family:var(--font-mono); font-size:0.84rem;">${escapeHTML(item.textContent)}</pre>`;
-  } else if (item.instructions) {
-    contentHtml = `<pre style="white-space:pre-wrap; font-family:var(--font-mono); font-size:0.84rem;">${escapeHTML(item.instructions)}</pre>`;
+  } else if (item.textContent || item.instructions) {
+    const pre = document.createElement("pre");
+    pre.style.cssText = "white-space:pre-wrap; font-family:var(--font-mono); font-size:0.84rem;";
+    pre.textContent = item.textContent || item.instructions;
+    contentNode = pre;
   } else {
-    contentHtml = `<p>${escapeHTML(item.summary || "No preview content available.")}</p>`;
+    const p = document.createElement("p");
+    p.textContent = item.summary || "No preview content available.";
+    contentNode = p;
   }
 
   const icon = item.type === "image" ? "🖼️" : item.type === "weblink" ? "🔗" : item.type === "skill" ? "⚡" : "📄";
-  openPreviewModal(icon, item.name, contentHtml, item);
+  openPreviewModal(icon, item.name, contentNode, item);
 }
 
-function openPreviewModal(icon, title, bodyHtml, itemToAttach = null) {
+function openPreviewModal(icon, title, bodyContent, itemToAttach = null) {
   DOM.previewModalIcon.textContent = icon;
   DOM.previewModalTitle.textContent = title;
-  DOM.previewModalBody.innerHTML = sanitizeRenderedHtml(bodyHtml);
+  if (bodyContent instanceof Node) {
+    DOM.previewModalBody.replaceChildren(bodyContent);
+  } else if (typeof bodyContent === "string") {
+    DOM.previewModalBody.innerHTML = sanitizeRenderedHtml(bodyContent);
+  } else {
+    DOM.previewModalBody.replaceChildren();
+  }
   state.previewPendingItem = itemToAttach;
 
   if (itemToAttach) {
@@ -1907,9 +2273,38 @@ function deleteChat(chatId, e) {
   }
 }
 
+function createReasoningBoxElement(reasoningText) {
+  const box = document.createElement("div");
+  box.className = "reasoning-box";
+
+  const header = document.createElement("div");
+  header.className = "reasoning-header";
+
+  const titleSpan = document.createElement("span");
+  titleSpan.textContent = `💭 Thinking Process (${reasoningText.length} chars)`;
+
+  const toggleSpan = document.createElement("span");
+  toggleSpan.className = "reason-toggle-icon";
+  toggleSpan.textContent = "▼";
+
+  header.append(titleSpan, toggleSpan);
+
+  const content = document.createElement("div");
+  content.className = "reasoning-content";
+  content.textContent = reasoningText;
+
+  header.addEventListener("click", () => {
+    box.classList.toggle("collapsed");
+    toggleSpan.textContent = box.classList.contains("collapsed") ? "▶" : "▼";
+  });
+
+  box.append(header, content);
+  return box;
+}
+
 function renderConversationsSidebar() {
-  const searchTerm = (DOM.searchChatsInput.value || "").toLowerCase().trim();
-  DOM.conversationsList.innerHTML = "";
+  const searchTerm = (DOM.searchChatsInput?.value || "").toLowerCase().trim();
+  if (DOM.conversationsList) DOM.conversationsList.replaceChildren();
 
   const chatIds = Object.keys(state.chats).sort((a, b) => state.chats[b].createdAt - state.chats[a].createdAt);
 
@@ -1922,20 +2317,42 @@ function renderConversationsSidebar() {
     const isActive = id === state.currentChatId;
     const item = document.createElement("div");
     item.className = `chat-item ${isActive ? "active" : ""}`;
-    item.innerHTML = `
-      <span class="chat-item-title">${escapeHTML(chat.title)}</span>
-      <div class="chat-item-actions">
-        <button class="chat-action-btn delete-btn" title="Delete chat">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-        </button>
-      </div>
-    `;
+
+    const titleSpan = document.createElement("span");
+    titleSpan.className = "chat-item-title";
+    titleSpan.textContent = chat.title || "Untitled";
+
+    const actionsDiv = document.createElement("div");
+    actionsDiv.className = "chat-item-actions";
+
+    const delBtn = document.createElement("button");
+    delBtn.className = "chat-action-btn delete-btn";
+    delBtn.title = "Delete chat";
+
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("width", "14");
+    svg.setAttribute("height", "14");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "2");
+
+    const polyline = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+    polyline.setAttribute("points", "3 6 5 6 21 6");
+
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2");
+
+    svg.append(polyline, path);
+    delBtn.appendChild(svg);
+    actionsDiv.appendChild(delBtn);
+
+    item.append(titleSpan, actionsDiv);
 
     item.addEventListener("click", () => loadChat(id));
-    const delBtn = item.querySelector(".delete-btn");
     delBtn.addEventListener("click", (e) => deleteChat(id, e));
 
-    DOM.conversationsList.appendChild(item);
+    if (DOM.conversationsList) DOM.conversationsList.appendChild(item);
   });
 }
 
@@ -1943,7 +2360,7 @@ function renderConversationsSidebar() {
 // RENDERING MESSAGES & CHAT UI
 // ==========================================================
 function renderMessages(messages) {
-  DOM.messagesContainer.innerHTML = "";
+  DOM.messagesContainer.replaceChildren();
 
   if (!messages || messages.length === 0) {
     DOM.welcomeScreen.style.display = "flex";
@@ -1964,119 +2381,162 @@ function appendMessageElement(msg, index) {
   row.className = `message-row ${isUser ? "user" : "bot"}`;
   row.setAttribute("data-index", index);
 
-  const avatar = isUser ? "" : `
-    <div class="avatar bot" title="RoroGPT">
-      <img src="/logo.jpg" alt="RoroGPT Avatar">
-    </div>
-  `;
-
-  // DeepSeek R1 / Reasoning collapsible content
-  let reasoningHtml = "";
-  if (!isUser && msg.reasoning) {
-    reasoningHtml = `
-      <div class="reasoning-box">
-        <div class="reasoning-header">
-          <span>💭 Thinking Process (${msg.reasoning.length} chars)</span>
-          <span class="reason-toggle-icon">▼</span>
-        </div>
-        <div class="reasoning-content">${escapeHTML(msg.reasoning)}</div>
-      </div>
-    `;
+  if (!isUser) {
+    const avatar = document.createElement("div");
+    avatar.className = "avatar bot";
+    avatar.title = "RoroGPT";
+    const avatarImg = document.createElement("img");
+    avatarImg.src = "/logo.jpg";
+    avatarImg.alt = "RoroGPT Avatar";
+    avatar.appendChild(avatarImg);
+    row.appendChild(avatar);
   }
+
+  const bubbleWrapper = document.createElement("div");
+  bubbleWrapper.className = "message-bubble-wrapper";
+
+  const bubble = document.createElement("div");
+  bubble.className = "message-bubble";
 
   // Render attachment chips or image previews in user message bubble
-  let attachmentsHtml = "";
   if (isUser && msg.attachments && msg.attachments.length > 0) {
-    let chips = "";
+    const attachContainer = document.createElement("div");
+    attachContainer.className = "msg-attachments-container";
+
     msg.attachments.forEach(att => {
       const rawSrc = (att.previewUrl || att.base64Data || "").trim();
-      const lower = rawSrc.toLowerCase();
-      if (att.type === "image" && (lower.startsWith("data:image/") || lower.startsWith("http://") || lower.startsWith("https://"))) {
-        chips += `<img src="${escapeHTML(rawSrc)}" class="msg-attached-img" alt="${escapeHTML(att.name)}" title="${escapeHTML(att.name)}" data-preview="true">`;
+      if (att.type === "image" && isSafeUrl(rawSrc, true)) {
+        const img = document.createElement("img");
+        img.src = rawSrc;
+        img.className = "msg-attached-img";
+        img.alt = att.name || "Attachment";
+        img.title = att.name || "Attachment";
+        img.setAttribute("data-preview", "true");
+        img.addEventListener("click", () => {
+          const previewDiv = document.createElement("div");
+          previewDiv.style.textAlign = "center";
+          const pImg = document.createElement("img");
+          pImg.src = rawSrc;
+          pImg.style.cssText = "max-width:100%; border-radius:8px;";
+          previewDiv.appendChild(pImg);
+          openPreviewModal("🖼️ Photo", att.name || "Photo", previewDiv);
+        });
+        attachContainer.appendChild(img);
       } else {
-        const icon = att.type === "weblink" ? "🔗" : att.type === "skill" ? "⚡" : "📄";
-        chips += `<span class="msg-attachment-badge"><span>${icon}</span><span>${escapeHTML(att.name)}</span></span>`;
+        const badge = document.createElement("span");
+        badge.className = "msg-attachment-badge";
+        const iconSpan = document.createElement("span");
+        iconSpan.textContent = att.type === "weblink" ? "🔗" : att.type === "skill" ? "⚡" : "📄";
+        const nameSpan = document.createElement("span");
+        nameSpan.textContent = att.name || "Attachment";
+        badge.append(iconSpan, nameSpan);
+        attachContainer.appendChild(badge);
       }
     });
-    attachmentsHtml = `<div class="msg-attachments-container">${chips}</div>`;
+
+    bubble.appendChild(attachContainer);
   }
 
-  // User text or display text
-  let userText = "";
-  if (typeof msg.content === "string") {
-    userText = msg.displayContent || msg.content;
-  } else if (Array.isArray(msg.content)) {
-    const textPart = msg.content.find(p => p.type === "text");
-    userText = msg.displayContent || (textPart ? textPart.text : "");
+  // DeepSeek R1 / Reasoning collapsible content
+  if (!isUser && msg.reasoning) {
+    bubble.appendChild(createReasoningBoxElement(msg.reasoning));
   }
 
-  const contentHtml = isUser ? escapeHTML(userText) : renderMarkdown(msg.content);
+  // User text or assistant markdown
+  const bubbleText = document.createElement("div");
+  bubbleText.className = "bubble-text";
+  if (isUser) {
+    let userText = "";
+    if (typeof msg.content === "string") {
+      userText = msg.displayContent || msg.content;
+    } else if (Array.isArray(msg.content)) {
+      const textPart = msg.content.find(p => p.type === "text");
+      userText = msg.displayContent || (textPart ? textPart.text : "");
+    }
+    bubbleText.textContent = userText;
+  } else {
+    bubbleText.innerHTML = renderMarkdown(msg.content);
+  }
+  bubble.appendChild(bubbleText);
+  bubbleWrapper.appendChild(bubble);
 
-  row.innerHTML = `
-    ${avatar}
-    <div class="message-bubble-wrapper">
-      <div class="message-bubble">
-        ${attachmentsHtml}
-        ${reasoningHtml}
-        <div class="bubble-text">${contentHtml}</div>
-      </div>
-      <div class="message-meta">
-        ${isUser ? "" : `<span class="bot-model-tag" style="color: var(--accent-cyan); font-weight: 600;">${msg.model || "RoroGPT"}</span>`}
-        <div class="message-actions">
-          <button class="action-chip-btn copy-msg-btn" title="Copy message">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-            <span>Copy</span>
-          </button>
-          ${!isUser ? `
-            <button class="action-chip-btn speak-msg-btn" title="Read Aloud">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
-              <span>Speak</span>
-            </button>
-          ` : ""}
-        </div>
-      </div>
-    </div>
-  `;
+  // Message metadata and actions
+  const meta = document.createElement("div");
+  meta.className = "message-meta";
 
-  // Attach click listener on user message attached images to preview full-screen
-  row.querySelectorAll(".msg-attached-img").forEach(img => {
-    img.addEventListener("click", () => {
-      openPreviewModal("🖼️ Photo", img.title || "Photo", `<div style="text-align:center;"><img src="${escapeHTML(img.src)}" style="max-width:100%; border-radius:8px;"></div>`);
+  if (!isUser) {
+    const modelTag = document.createElement("span");
+    modelTag.className = "bot-model-tag";
+    modelTag.style.cssText = "color: var(--accent-cyan); font-weight: 600;";
+    modelTag.textContent = msg.model || "RoroGPT";
+    meta.appendChild(modelTag);
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "message-actions";
+
+  const copyBtn = document.createElement("button");
+  copyBtn.className = "action-chip-btn copy-msg-btn";
+  copyBtn.title = "Copy message";
+
+  const copySvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  copySvg.setAttribute("width", "12");
+  copySvg.setAttribute("height", "12");
+  copySvg.setAttribute("viewBox", "0 0 24 24");
+  copySvg.setAttribute("fill", "none");
+  copySvg.setAttribute("stroke", "currentColor");
+  copySvg.setAttribute("stroke-width", "2");
+  const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  rect.setAttribute("x", "9"); rect.setAttribute("y", "9"); rect.setAttribute("width", "13"); rect.setAttribute("height", "13"); rect.setAttribute("rx", "2"); rect.setAttribute("ry", "2");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", "M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1");
+  copySvg.append(rect, path);
+
+  const copyText = document.createElement("span");
+  copyText.textContent = "Copy";
+  copyBtn.append(copySvg, copyText);
+
+  copyBtn.addEventListener("click", () => {
+    const liveText = msg.content || bubbleText.innerText || "";
+    navigator.clipboard.writeText(liveText).then(() => {
+      copyText.textContent = "Copied!";
+      setTimeout(() => { copyText.textContent = "Copy"; }, 1500);
     });
   });
+  actions.appendChild(copyBtn);
 
-  // Attach reasoning accordion toggle
-  const reasonHeader = row.querySelector(".reasoning-header");
-  if (reasonHeader) {
-    reasonHeader.addEventListener("click", () => {
-      const box = reasonHeader.closest(".reasoning-box");
-      box.classList.toggle("collapsed");
-      const icon = reasonHeader.querySelector(".reason-toggle-icon");
-      icon.textContent = box.classList.contains("collapsed") ? "▶" : "▼";
-    });
-  }
+  if (!isUser) {
+    const speakBtn = document.createElement("button");
+    speakBtn.className = "action-chip-btn speak-msg-btn";
+    speakBtn.title = "Read Aloud";
 
-  // Attach copy button
-  const copyBtn = row.querySelector(".copy-msg-btn");
-  if (copyBtn) {
-    copyBtn.addEventListener("click", () => {
-      const liveText = msg.content || row.querySelector(".bubble-text")?.innerText || "";
-      navigator.clipboard.writeText(liveText).then(() => {
-        copyBtn.querySelector("span").textContent = "Copied!";
-        setTimeout(() => { copyBtn.querySelector("span").textContent = "Copy"; }, 1500);
-      });
-    });
-  }
+    const speakSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    speakSvg.setAttribute("width", "12");
+    speakSvg.setAttribute("height", "12");
+    speakSvg.setAttribute("viewBox", "0 0 24 24");
+    speakSvg.setAttribute("fill", "none");
+    speakSvg.setAttribute("stroke", "currentColor");
+    speakSvg.setAttribute("stroke-width", "2");
+    const polygon = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+    polygon.setAttribute("points", "11 5 6 9 2 9 2 15 6 15 11 19 11 5");
+    const arc = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    arc.setAttribute("d", "M19.07 4.93a10 10 0 0 1 0 14.14");
+    speakSvg.append(polygon, arc);
 
-  // Attach speak button
-  const speakBtn = row.querySelector(".speak-msg-btn");
-  if (speakBtn) {
+    const speakTextSpan = document.createElement("span");
+    speakTextSpan.textContent = "Speak";
+    speakBtn.append(speakSvg, speakTextSpan);
+
     speakBtn.addEventListener("click", () => {
-      const liveText = msg.content || row.querySelector(".bubble-text")?.innerText || "";
+      const liveText = msg.content || bubbleText.innerText || "";
       speakText(liveText, speakBtn);
     });
+    actions.appendChild(speakBtn);
   }
 
+  meta.appendChild(actions);
+  bubbleWrapper.appendChild(meta);
+  row.appendChild(bubbleWrapper);
   DOM.messagesContainer.appendChild(row);
 }
 
@@ -2208,7 +2668,9 @@ async function sendMessage() {
   appendMessageElement(botMsg, botIndex);
   const botRow = DOM.messagesContainer.querySelector(`[data-index="${botIndex}"]`);
   const bubbleText = botRow.querySelector(".bubble-text");
-  bubbleText.innerHTML = `<span class="pulsing-dot"></span>`;
+  const dot = document.createElement("span");
+  dot.className = "pulsing-dot";
+  bubbleText.replaceChildren(dot);
 
   // Start Generation state
   state.isGenerating = true;
@@ -2338,25 +2800,14 @@ async function sendMessage() {
 function updateReasoningBox(row, reasoningText) {
   let box = row.querySelector(".reasoning-box");
   if (!box) {
-    box = document.createElement("div");
-    box.className = "reasoning-box";
-    box.innerHTML = `
-      <div class="reasoning-header">
-        <span>💭 Thinking Process (${reasoningText.length} chars)</span>
-        <span class="reason-toggle-icon">▼</span>
-      </div>
-      <div class="reasoning-content">${escapeHTML(reasoningText)}</div>
-    `;
+    box = createReasoningBoxElement(reasoningText);
     const bubble = row.querySelector(".message-bubble");
-    bubble.insertBefore(box, bubble.firstChild);
-
-    box.querySelector(".reasoning-header").addEventListener("click", () => {
-      box.classList.toggle("collapsed");
-      box.querySelector(".reason-toggle-icon").textContent = box.classList.contains("collapsed") ? "▶" : "▼";
-    });
+    if (bubble) bubble.insertBefore(box, bubble.firstChild);
   } else {
-    box.querySelector(".reasoning-header span").textContent = `💭 Thinking Process (${reasoningText.length} chars)`;
-    box.querySelector(".reasoning-content").textContent = reasoningText;
+    const headerTitle = box.querySelector(".reasoning-header span");
+    if (headerTitle) headerTitle.textContent = `💭 Thinking Process (${reasoningText.length} chars)`;
+    const content = box.querySelector(".reasoning-content");
+    if (content) content.textContent = reasoningText;
   }
 }
 
@@ -2455,13 +2906,11 @@ function initEvents() {
     if (!codeEl) return;
 
     navigator.clipboard.writeText(codeEl.innerText).then(() => {
-      copyBtn.innerHTML = `<span>✓ Copied!</span>`;
+      const span = copyBtn.querySelector("span");
+      if (span) span.textContent = "✓ Copied!";
       copyBtn.style.color = "#10b981";
       setTimeout(() => {
-        copyBtn.innerHTML = `
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-          <span>Copy</span>
-        `;
+        if (span) span.textContent = "Copy";
         copyBtn.style.color = "";
       }, 1800);
     }).catch(() => {

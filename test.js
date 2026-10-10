@@ -1093,6 +1093,364 @@ async function runTests() {
     assert(false, `Test Suite 10 failed with error: ${err.message}\n${err.stack}`);
   }
 
+  // TEST SUITE 11: Removal of Unsafe innerHTML Interpolation Across Client (High Fix 5)
+  console.log("\n--- 11. Removal of Unsafe innerHTML Interpolation Across Client (High Fix 5) ---");
+  try {
+    const appSource = fs.readFileSync(path.join(__dirname, "public", "app.js"), "utf8");
+    const indexHtml = fs.readFileSync(path.join(__dirname, "public", "index.html"), "utf8");
+
+    // 11.1 Client source code audit: No unapproved innerHTML assignments
+    assert(!indexHtml.includes("innerHTML") && !indexHtml.includes("outerHTML") && !indexHtml.includes("insertAdjacentHTML"), "High Fix 5: public/index.html contains zero innerHTML/outerHTML assignments");
+
+    const innerHtmlMatches = [];
+    const lines = appSource.split("\n");
+    lines.forEach((line, idx) => {
+      if (line.includes("innerHTML")) {
+        innerHtmlMatches.push({ lineNum: idx + 1, line: line.trim() });
+      }
+    });
+
+    const unapprovedMatches = innerHtmlMatches.filter(m => {
+      return !m.line.includes("renderMarkdown") &&
+             !m.line.includes("tempDiv.innerHTML") &&
+             !m.line.includes("DOM.previewModalBody.innerHTML = sanitizeRenderedHtml");
+    });
+    assert(unapprovedMatches.length === 0, `High Fix 5: Zero unapproved innerHTML assignments in public/app.js (found ${unapprovedMatches.length})`);
+
+    // Setup JSDOM environment for DOM API testing
+    const testDom11 = new JSDOM(
+      `<!DOCTYPE html><html><head></head><body>
+        <div id="toastContainer"></div>
+        <div id="previewModalIcon"></div>
+        <div id="previewModalTitle"></div>
+        <div id="previewModalBody"></div>
+        <div id="itemPreviewModal"></div>
+        <div id="previewAttachToChatBtn"></div>
+        <div id="chatViewport"><div id="messagesContainer"></div></div>
+        <div id="welcomeScreen"></div>
+        <div id="conversationsList"></div>
+        <div id="libraryGridContainer"></div>
+        <div id="attachmentsTray"></div>
+        <div id="dropdownModelsList"></div>
+        <div id="fullModelsGrid"></div>
+        <div id="embeddingsGrid"></div>
+        <div id="skillsListContainer"></div>
+        <div id="cameraErrorBanner"></div>
+        <div id="linkFetchStatusBox"></div>
+        <div id="modelPillBtn"><span class="best-badge"></span></div>
+        <div id="modelPillContainer"></div>
+        <div id="activeModelName"></div>
+        <div id="activeModelDot"></div>
+        <div id="inputModelChip"><span class="chip-name"></span><span class="chip-dot"></span></div>
+        <div id="welcomeActiveModel"></div>
+        <div id="apiKeyStatusBadge"><span class="status-dot"></span><span class="status-text"></span></div>
+        <div id="libraryModal"></div>
+        <div id="searchChatsInput"></div>
+      </body></html>`,
+      { runScripts: "dangerously", url: "https://rorogpt.uk" }
+    );
+
+    const purifyLocalPath = path.join(__dirname, "public", "purify.min.js");
+    testDom11.window.eval(fs.readFileSync(purifyLocalPath, "utf8"));
+
+    // Expose helpers, state, and DOM inside testDom11
+    testDom11.window.eval(`
+      var DEFAULT_CHAT_MODEL = window.DEFAULT_CHAT_MODEL = "gemini-2.0-flash";
+      var DEFAULT_EMBEDDING_MODEL = window.DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small";
+
+      var DOM = window.DOM = {
+        toastContainer: document.getElementById("toastContainer"),
+        previewModalIcon: document.getElementById("previewModalIcon"),
+        previewModalTitle: document.getElementById("previewModalTitle"),
+        previewModalBody: document.getElementById("previewModalBody"),
+        itemPreviewModal: document.getElementById("itemPreviewModal"),
+        previewAttachToChatBtn: document.getElementById("previewAttachToChatBtn"),
+        chatViewport: document.getElementById("chatViewport"),
+        messagesContainer: document.getElementById("messagesContainer"),
+        welcomeScreen: document.getElementById("welcomeScreen"),
+        conversationsList: document.getElementById("conversationsList"),
+        libraryGridContainer: document.getElementById("libraryGridContainer"),
+        librarySearchInput: { value: "" },
+        attachmentsTray: document.getElementById("attachmentsTray"),
+        dropdownModelsList: document.getElementById("dropdownModelsList"),
+        fullModelsGrid: document.getElementById("fullModelsGrid"),
+        embeddingsGrid: document.getElementById("embeddingsGrid"),
+        skillsListContainer: document.getElementById("skillsListContainer"),
+        cameraErrorBanner: document.getElementById("cameraErrorBanner"),
+        linkFetchStatusBox: document.getElementById("linkFetchStatusBox"),
+        modelPillBtn: document.getElementById("modelPillBtn"),
+        modelPillContainer: document.getElementById("modelPillContainer"),
+        activeModelName: document.getElementById("activeModelName"),
+        activeModelDot: document.getElementById("activeModelDot"),
+        inputModelChip: document.getElementById("inputModelChip"),
+        welcomeActiveModel: document.getElementById("welcomeActiveModel"),
+        apiKeyStatusBadge: document.getElementById("apiKeyStatusBadge"),
+        libraryModal: document.getElementById("libraryModal"),
+        searchChatsInput: document.getElementById("searchChatsInput"),
+        chatInput: { value: "", focus: () => {} },
+        sendBtn: { disabled: false }
+      };
+
+      var state = window.state = {
+        activeModel: "free-fast",
+        activeEmbeddingModel: "text-embedding-3-small",
+        activeLibFilter: "all",
+        libraryItems: [],
+        attachments: [],
+        models: [],
+        embeddingModels: [],
+        skills: [],
+        chats: {},
+        currentChatId: null,
+        previewPendingItem: null,
+        apiKey: "",
+        isGenerating: false
+      };
+    `);
+
+    // Evaluate escaping, security helpers, and markdown sanitizer
+    const sliceHelpers = appSource.slice(
+      appSource.indexOf("function escapeHTML"),
+      appSource.indexOf("THEME HANDLING")
+    );
+    testDom11.window.eval(sliceHelpers);
+
+    const { normalizeErrorMessage, isSafeUrl, isSafeCssColor, showToast } = testDom11.window;
+    assert(typeof normalizeErrorMessage === "function", "High Fix 5: normalizeErrorMessage helper loaded");
+    assert(typeof isSafeUrl === "function", "High Fix 5: isSafeUrl helper loaded");
+    assert(typeof isSafeCssColor === "function", "High Fix 5: isSafeCssColor helper loaded");
+
+    // 11.2 Error message normalization & secret stripping
+    const secretMsg = "Error connecting with Authorization: Bearer sk-ant-secretkey12345 at Object.run (/app/server.js:10:5)";
+    const normalizedSecret = normalizeErrorMessage(secretMsg, 200);
+    assert(!normalizedSecret.includes("sk-ant-secretkey12345"), "High Fix 5: normalizeErrorMessage strips API token/key");
+    assert(!normalizedSecret.includes("at Object.run"), "High Fix 5: normalizeErrorMessage strips V8 stack traces");
+
+    // 11.3 URL validation: isSafeUrl
+    assert(isSafeUrl("https://images.unsplash.com/photo-123.jpg"), "High Fix 5: isSafeUrl permits https: URLs");
+    assert(isSafeUrl("http://example.com/logo.png"), "High Fix 5: isSafeUrl permits http: URLs");
+    assert(isSafeUrl("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", true), "High Fix 5: isSafeUrl permits data:image/ when allowed");
+    assert(!isSafeUrl("javascript:alert(1)"), "High Fix 5: isSafeUrl rejects javascript: pseudo-protocol");
+    assert(!isSafeUrl("vbscript:alert(1)"), "High Fix 5: isSafeUrl rejects vbscript: pseudo-protocol");
+    assert(!isSafeUrl("file:///C:/Windows/system.ini"), "High Fix 5: isSafeUrl rejects file: protocol");
+    assert(!isSafeUrl("data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==", true), "High Fix 5: isSafeUrl rejects data:text/html even if data:image allowed");
+
+    // 11.4 CSS color validation: isSafeCssColor
+    assert(isSafeCssColor("#10b981"), "High Fix 5: isSafeCssColor accepts hex color #10b981");
+    assert(isSafeCssColor("rgb(59, 130, 246)"), "High Fix 5: isSafeCssColor accepts rgb()");
+    assert(isSafeCssColor("rgba(59, 130, 246, 0.5)"), "High Fix 5: isSafeCssColor accepts rgba()");
+    assert(isSafeCssColor("hsl(217, 91%, 60%)"), "High Fix 5: isSafeCssColor accepts hsl()");
+    assert(isSafeCssColor("linear-gradient(135deg, #10b981, #06b6d4)"), "High Fix 5: isSafeCssColor accepts safe linear-gradient");
+    assert(isSafeCssColor("cyan"), "High Fix 5: isSafeCssColor accepts safe named color 'cyan'");
+    assert(!isSafeCssColor("red; background: url(javascript:alert(1))"), "High Fix 5: isSafeCssColor rejects CSS injection with semicolon and url()");
+    assert(!isSafeCssColor("expression(alert(1))"), "High Fix 5: isSafeCssColor rejects CSS expression()");
+    assert(!isSafeCssColor("<script>"), "High Fix 5: isSafeCssColor rejects HTML markup in color");
+
+    // Evaluate models and embeddings UI rendering
+    const sliceModels = appSource.slice(
+      appSource.indexOf("function selectModel(modelId)"),
+      appSource.indexOf("USER PC SPECIAL FOLDER STORAGE")
+    );
+    testDom11.window.eval(sliceModels + "\nwindow.selectModel = selectModel; window.renderModelsUI = renderModelsUI; window.renderEmbeddingsUI = renderEmbeddingsUI;");
+
+    // Evaluate attachments tray rendering
+    const sliceAttachments = appSource.slice(
+      appSource.indexOf("function renderAttachmentsTray()"),
+      appSource.indexOf("async function handleDocumentFiles(")
+    );
+    testDom11.window.eval(sliceAttachments + "\nwindow.renderAttachmentsTray = renderAttachmentsTray;");
+
+    // Evaluate skills list rendering
+    const sliceSkills = appSource.slice(
+      appSource.indexOf("function renderSkillsList()"),
+      appSource.indexOf("async function handleSkillFileInput")
+    );
+    testDom11.window.eval(sliceSkills + "\nwindow.renderSkillsList = renderSkillsList;");
+
+    // Evaluate library grid & preview modal
+    const sliceLibrary = appSource.slice(
+      appSource.indexOf("function renderLibraryGrid()"),
+      appSource.indexOf("async function syncLibraryToPCFolder")
+    );
+    testDom11.window.eval(sliceLibrary + "\nwindow.renderLibraryGrid = renderLibraryGrid; window.previewLibraryItem = previewLibraryItem; window.openPreviewModal = openPreviewModal;");
+
+    // Evaluate chat messages & reasoning box
+    const sliceChat = appSource.slice(
+      appSource.indexOf("function createReasoningBoxElement"),
+      appSource.indexOf("async function computeSimilarity()")
+    );
+    testDom11.window.eval(sliceChat + "\nwindow.createReasoningBoxElement = createReasoningBoxElement; window.renderConversationsSidebar = renderConversationsSidebar; window.renderMessages = renderMessages; window.appendMessageElement = appendMessageElement; window.updateReasoningBox = updateReasoningBox;");
+
+    // 11.5 Test Case 1: Toast message with <img src=x onerror=alert(1)>
+    testDom11.window.showToast('<img src=x onerror=alert(1)>', 'error');
+    const toastEl = testDom11.window.document.querySelector('.toast');
+    assert(Boolean(toastEl), "High Fix 5: Case 1 - Toast element is appended to DOM");
+    assert(toastEl.querySelector("img") === null, "High Fix 5: Case 1 - No <img> DOM element created inside toast from payload");
+    const toastMsgSpan = toastEl.querySelector(".toast-msg");
+    assert(toastMsgSpan !== null, "High Fix 5: Case 1 - Toast message span exists");
+    assert(toastMsgSpan.textContent.includes("<img src=x onerror=alert(1)>"), "High Fix 5: Case 1 - Payload text preserved safely via textContent without execution");
+
+    // 11.6 Test Case 2: Provider error with <script>alert(1)</script>
+    testDom11.window.showToast('Provider API failed: <script>alert(1)</script>', 'error');
+    const allToasts = testDom11.window.document.querySelectorAll('.toast');
+    const latestToast = allToasts[allToasts.length - 1];
+    assert(latestToast.querySelector("script") === null, "High Fix 5: Case 2 - No <script> DOM element created inside toast");
+    assert(latestToast.textContent.includes("<script>alert(1)</script>"), "High Fix 5: Case 2 - Script tag text preserved literally in textContent");
+
+    // 11.7 Test Case 3: File name in attachment tray with <img src=x onerror=alert(1)>.txt
+    testDom11.window.state.attachments = [{
+      id: "att_test_1",
+      name: '<img src=x onerror=alert(1)>.txt',
+      type: "document",
+      meta: "12 KB",
+      textContent: "Sample text"
+    }];
+    testDom11.window.renderAttachmentsTray();
+    const attTray = testDom11.window.document.getElementById("attachmentsTray");
+    const chip = attTray.querySelector(".attachment-chip");
+    assert(Boolean(chip), "High Fix 5: Case 3 - Attachment chip element rendered");
+    assert(chip.querySelector("img") === null, "High Fix 5: Case 3 - No <img> DOM element created inside document chip");
+    const chipName = chip.querySelector(".chip-name");
+    assert(chipName !== null && chipName.textContent === '<img src=x onerror=alert(1)>.txt', "High Fix 5: Case 3 - Malicious file name safely set via textContent");
+
+    // 11.8 Test Case 4: Skill name and description with HTML markup
+    testDom11.window.state.skills = [{
+      id: "skill_test_1",
+      name: '<b onmouseover=alert(1)>Custom Skill</b>',
+      description: '<script>alert("xss")</script>',
+      instructions: "Do this safely"
+    }];
+    testDom11.window.renderSkillsList();
+    const skillsList = testDom11.window.document.getElementById("skillsListContainer");
+    const skillCard = skillsList.querySelector(".skill-card");
+    assert(Boolean(skillCard), "High Fix 5: Case 4 - Skill card rendered in DOM");
+    assert(skillCard.querySelector("b") === null, "High Fix 5: Case 4 - No <b> DOM element created inside skill card");
+    assert(skillCard.querySelector("script") === null, "High Fix 5: Case 4 - No <script> DOM element created inside skill card");
+    const skillTitle = skillCard.querySelector(".skill-card-title");
+    const skillDesc = skillCard.querySelector(".skill-card-desc");
+    assert(skillTitle.textContent === '<b onmouseover=alert(1)>Custom Skill</b>', "High Fix 5: Case 4 - Skill title safely matches textContent");
+    assert(skillDesc.textContent === '<script>alert("xss")</script>', "High Fix 5: Case 4 - Skill description safely matches textContent");
+
+    // 11.9 Test Case 5: Custom model ID containing quotes, tags, and CSS-like content
+    testDom11.window.state.models = [{
+      id: 'custom-model"><script>alert(1)</script>',
+      name: 'Custom Model <style>body{color:red}</style>',
+      description: 'Description with <a href="javascript:alert(1)">Click</a>',
+      badgeColor: 'red; background: url(javascript:alert(1))',
+      speed: '⚡ 100 tps',
+      color: 'red; background: url(javascript:alert(1))'
+    }];
+    testDom11.window.renderModelsUI();
+    const modelsGrid = testDom11.window.document.getElementById("fullModelsGrid");
+    const modelCard = modelsGrid.querySelector(".model-card");
+    assert(Boolean(modelCard), "High Fix 5: Case 5 - Model card rendered in DOM");
+    assert(modelCard.querySelector("script") === null, "High Fix 5: Case 5 - No <script> element inside model card");
+    assert(modelCard.querySelector("style") === null, "High Fix 5: Case 5 - No <style> element inside model card");
+    assert(modelCard.querySelector("img") === null, "High Fix 5: Case 5 - No <img> element inside model card");
+    const cardTitle = modelCard.querySelector(".card-m-name");
+    assert(cardTitle.textContent === 'Custom Model <style>body{color:red}</style>', "High Fix 5: Case 5 - Model name matches textContent");
+
+    // Test selectModel with unsafe CSS color
+    testDom11.window.selectModel('custom-model"><script>alert(1)</script>');
+    const activeDot = testDom11.window.document.getElementById("activeModelDot");
+    assert(activeDot.style.background === "rgb(16, 185, 129)" || activeDot.style.background === "#10b981", "High Fix 5: Case 5 - Unsafe color rejected in selectModel; safe fallback applied");
+
+    // 11.10 Test Case 6: Model description containing malicious links
+    const cardDesc = modelCard.querySelector(".card-m-desc");
+    assert(cardDesc.querySelector("a") === null, "High Fix 5: Case 6 - No <a> tag created inside model description");
+    assert(cardDesc.textContent === 'Description with <a href="javascript:alert(1)">Click</a>', "High Fix 5: Case 6 - Model description set via textContent");
+
+    // 11.11 Test Case 7: Webpage title containing markup
+    testDom11.window.state.attachments = [{
+      id: "att_web_1",
+      name: '<svg onload=alert(1)>Web Link</svg>',
+      type: "weblink",
+      url: "https://example.com",
+      meta: "Web Page",
+      textContent: "Web page content"
+    }];
+    testDom11.window.renderAttachmentsTray();
+    const webChip = testDom11.window.document.getElementById("attachmentsTray").querySelector(".attachment-chip");
+    assert(webChip.querySelector("svg") !== null, "High Fix 5: Case 7 - Chip contains UI SVG icon");
+    const injectedSvg = Array.from(webChip.querySelectorAll("svg")).find(s => s.hasAttribute("onload"));
+    assert(!injectedSvg, "High Fix 5: Case 7 - No SVG with onload attribute exists");
+    const webChipName = webChip.querySelector(".chip-name");
+    assert(webChipName.textContent === '<svg onload=alert(1)>Web Link</svg>', "High Fix 5: Case 7 - Webpage title safely rendered via textContent");
+
+    // 11.12 Test Case 8: Library item summary containing <iframe> payload
+    const libItem = {
+      id: "lib_1",
+      name: 'Safe Document <script>alert(1)</script>',
+      type: "document",
+      summary: '<iframe src="javascript:alert(1)"></iframe>',
+      textContent: 'Body content <img src=x onerror=alert(1)>'
+    };
+    testDom11.window.previewLibraryItem(libItem);
+    const previewBody = testDom11.window.document.getElementById("previewModalBody");
+    assert(previewBody.querySelector("iframe") === null, "High Fix 5: Case 8 - No <iframe> DOM element created inside preview modal");
+    assert(previewBody.querySelector("script") === null, "High Fix 5: Case 8 - No <script> DOM element created inside preview modal");
+    const preNode = previewBody.querySelector("pre");
+    assert(preNode !== null, "High Fix 5: Case 8 - Preview renders text content inside <pre> node");
+    assert(preNode.textContent === 'Body content <img src=x onerror=alert(1)>', "High Fix 5: Case 8 - Payload in document content rendered strictly as text");
+
+    // 11.13 Test Case 9: Image URL using javascript: or unsafe data:
+    const unsafeImgItem = {
+      id: "lib_img_unsafe",
+      name: "Unsafe Image",
+      type: "image",
+      previewUrl: "javascript:alert(1)"
+    };
+    testDom11.window.state.libraryItems = [unsafeImgItem];
+    testDom11.window.renderLibraryGrid();
+    const libGrid = testDom11.window.document.getElementById("libraryGridContainer");
+    const imgCard = libGrid.querySelector(".lib-card");
+    assert(imgCard !== null, "High Fix 5: Case 9 - Library image card rendered");
+    assert(imgCard.querySelector("img") === null, "High Fix 5: Case 9 - Unsafe javascript: previewUrl rejected; no <img> element created");
+    const placeholderIcon = imgCard.querySelector(".lib-card-icon");
+    assert(placeholderIcon !== null && placeholderIcon.textContent === "🖼️", "High Fix 5: Case 9 - Safe fallback placeholder icon rendered instead");
+
+    // 11.14 Test Case 10: Safe normal values, user chat rendering, and reasoning box
+    const userMsg = {
+      role: "user",
+      content: "Hello from user <script>alert('user')</script>",
+      attachments: [{
+        id: "att_normal",
+        name: "document.pdf",
+        type: "document",
+        meta: "150 KB"
+      }]
+    };
+    testDom11.window.appendMessageElement(userMsg, 0);
+    const msgRow = testDom11.window.document.querySelector('.message-row[data-index="0"]');
+    assert(msgRow !== null, "High Fix 5: Case 10 - User message row appended");
+    assert(msgRow.querySelector("script") === null, "High Fix 5: Case 10 - User message does not create <script> tag");
+    const bubbleText = msgRow.querySelector(".bubble-text");
+    assert(bubbleText.textContent === "Hello from user <script>alert('user')</script>", "High Fix 5: Case 10 - User message rendered strictly via textContent");
+
+    // Reasoning box element test
+    const reasoningEl = testDom11.window.createReasoningBoxElement("Thinking step 1 <script>alert(1)</script>");
+    assert(reasoningEl.querySelector("script") === null, "High Fix 5: Case 10 - Reasoning box does not create <script> DOM element");
+    const reasonContent = reasoningEl.querySelector(".reasoning-content");
+    assert(reasonContent.textContent === "Thinking step 1 <script>alert(1)</script>", "High Fix 5: Case 10 - Reasoning content set via textContent");
+
+    // Conversations sidebar test
+    testDom11.window.state.chats = {
+      "chat_1": {
+        id: "chat_1",
+        title: "Malicious Chat <img src=x onerror=alert(1)>",
+        createdAt: 1000
+      }
+    };
+    testDom11.window.renderConversationsSidebar();
+    const chatItem = testDom11.window.document.querySelector(".chat-item");
+    assert(chatItem !== null, "High Fix 5: Case 10 - Chat item rendered in sidebar");
+    assert(chatItem.querySelector("img") === null, "High Fix 5: Case 10 - No <img> created in sidebar chat item title");
+    assert(chatItem.querySelector(".chat-item-title").textContent === "Malicious Chat <img src=x onerror=alert(1)>", "High Fix 5: Case 10 - Chat title strictly rendered via textContent");
+
+  } catch (err) {
+    assert(false, `Test Suite 11 failed with error: ${err.message}\n${err.stack}`);
+  }
+
   // Summary
   console.log("\n========================================================");
   console.log(`   TOTAL TESTS: ${passed + failed} | PASSED: ${passed} | FAILED: ${failed}`);
