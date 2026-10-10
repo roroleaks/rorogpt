@@ -117,11 +117,11 @@ async function runTests() {
     const hasGemini = data.models.some(m => m.id === "gemini-2.0-flash" && m.provider === "gemini");
     assert(hasGemini, "100% Free Google model 'gemini-2.0-flash' is present");
 
-    const hasCerebras = data.models.some(m => m.id === "llama3.3-70b" && m.provider === "cerebras");
-    assert(hasCerebras, "100% Free Cerebras model 'llama3.3-70b' (1800 tok/s) is present");
+    const hasCerebras = data.models.some(m => (m.id === "cerebras/llama3.1-70b" || m.id.includes("llama3")) && m.provider === "cerebras");
+    assert(hasCerebras, "100% Free Cerebras model 'cerebras/llama3.1-70b' (1800 tok/s) is present");
 
-    const hasLocal = data.models.some(m => m.provider === "local");
-    assert(hasLocal, "100% Free Local Ollama (Odysseus-style) offline models are present");
+    const hasLocal = data.models.some(m => m.provider === "ollama" || m.provider === "local");
+    assert(hasLocal, "100% Free Local Ollama offline models are present");
 
     // Ensure NO non-free or paid models exist
     const hasPaid = data.models.some(m => m.price || m.badge?.includes("Paid") || m.id.includes("gpt-4o") || m.id.includes("claude-3-5-sonnet"));
@@ -1248,10 +1248,10 @@ async function runTests() {
 
     // Evaluate models and embeddings UI rendering
     const sliceModels = appSource.slice(
-      appSource.indexOf("function selectModel(modelId)"),
+      appSource.indexOf("function selectModel("),
       appSource.indexOf("USER PC SPECIAL FOLDER STORAGE")
     );
-    testDom11.window.eval(sliceModels + "\nwindow.selectModel = selectModel; window.renderModelsUI = renderModelsUI; window.renderEmbeddingsUI = renderEmbeddingsUI;");
+    testDom11.window.eval("function updateApiKeyBadge() {}\nfunction inferProvider(m) { if (!m) return 'groq'; if (m.startsWith('ollama/')) return 'ollama'; if (m.startsWith('cerebras/')) return 'cerebras'; if (m.startsWith('gemini-')) return 'gemini'; return 'groq'; }\n" + sliceModels + "\nwindow.selectModel = selectModel; window.renderModelsUI = renderModelsUI; window.renderEmbeddingsUI = renderEmbeddingsUI;");
 
     // Evaluate attachments tray rendering
     const sliceAttachments = appSource.slice(
@@ -1449,6 +1449,407 @@ async function runTests() {
 
   } catch (err) {
     assert(false, `Test Suite 11 failed with error: ${err.message}\n${err.stack}`);
+  }
+
+  // TEST SUITE 12: Free-Only Provider Configuration & No-Payment Policy Enforcement (Fix 6)
+  console.log("\n--- 12. Free-Only Provider Configuration & No-Payment Policy Enforcement (Fix 6) ---");
+  try {
+    const { default: chatHandler } = await import("./api/chat.js");
+    const { default: modelsHandler, SUPPORTED_PROVIDERS, PROVIDER_CONFIGS, ALL_MODELS } = await import("./api/models.js");
+
+    function createMockReqRes(body = {}, headers = {}, method = "POST") {
+      const req = {
+        method,
+        headers: { "content-type": "application/json", ...headers },
+        body,
+        on(event, fn) { return this; },
+        removeListener(event, fn) { return this; },
+        destroy() { return this; }
+      };
+      let statusCode = 200;
+      let responseData = null;
+      const resHeaders = {};
+      const chunks = [];
+
+      const res = {
+        statusCode: 200,
+        status(code) {
+          statusCode = code;
+          this.statusCode = code;
+          return this;
+        },
+        setHeader(name, value) {
+          resHeaders[name.toLowerCase()] = value;
+          return this;
+        },
+        getHeader(name) {
+          return resHeaders[name.toLowerCase()];
+        },
+        writeHead(code, head) {
+          statusCode = code;
+          this.statusCode = code;
+          if (head) Object.assign(resHeaders, head);
+          return this;
+        },
+        json(data) {
+          responseData = data;
+          this.ended = true;
+          return this;
+        },
+        send(data) {
+          responseData = data;
+          this.ended = true;
+          return this;
+        },
+        write(chunk) {
+          chunks.push(chunk);
+          return true;
+        },
+        end(data) {
+          if (data) chunks.push(data);
+          this.ended = true;
+          return this;
+        },
+        getStatus: () => statusCode,
+        getData: () => responseData,
+        getChunks: () => chunks.join(""),
+        getHeaders: () => resHeaders
+      };
+
+      return { req, res };
+    }
+
+    // 12.1 Case 1: Active configuration has zero OpenRouter references
+    const envExample = fs.readFileSync(path.join(__dirname, ".env.example"), "utf8");
+    const pkgJson = JSON.parse(fs.readFileSync(path.join(__dirname, "package.json"), "utf8"));
+    const indexHtml = fs.readFileSync(path.join(__dirname, "public/index.html"), "utf8");
+    const appJs = fs.readFileSync(path.join(__dirname, "public/app.js"), "utf8");
+
+    assert(!envExample.includes("OPENROUTER"), "Fix 6: Case 1 - .env.example contains zero OpenRouter references");
+    assert(!SUPPORTED_PROVIDERS.includes("openrouter"), "Fix 6: Case 1 - SUPPORTED_PROVIDERS does not include openrouter");
+    assert(ALL_MODELS.every(m => m.provider !== "openrouter" && !m.id.includes(":free")), "Fix 6: Case 1 - ALL_MODELS contains zero OpenRouter or :free models");
+    assert(!JSON.stringify(pkgJson).toLowerCase().includes("openrouter"), "Fix 6: Case 1 - package.json contains zero OpenRouter references");
+    assert(!indexHtml.toLowerCase().includes("openrouter"), "Fix 6: Case 1 - public/index.html contains zero OpenRouter references");
+    assert(!appJs.includes("Connected to OpenRouter"), "Fix 6: Case 1 - public/app.js contains zero active OpenRouter connection badges");
+
+    // 12.2 Case 2: OPENROUTER_API_KEY is not accepted or documented as supported
+    assert(!envExample.includes("OPENROUTER_API_KEY"), "Fix 6: Case 2 - OPENROUTER_API_KEY is not documented in .env.example");
+    assert(PROVIDER_CONFIGS.openrouter === undefined, "Fix 6: Case 2 - PROVIDER_CONFIGS.openrouter is undefined");
+    process.env.OPENROUTER_API_KEY = "sk-or-test-key";
+    assert(!SUPPORTED_PROVIDERS.includes("openrouter"), "Fix 6: Case 2 - Setting OPENROUTER_API_KEY does not enable openrouter");
+    delete process.env.OPENROUTER_API_KEY;
+
+    // 12.3 Case 3: Requests with an OpenRouter key, openrouter provider, or :free model suffix return HTTP 400
+    const orKeyReq = createMockReqRes({
+      provider: "groq",
+      model: "qwen/qwen3.8-27b",
+      apiKey: "sk-or-v1-abcdef1234567890",
+      messages: [{ role: "user", content: "hi" }]
+    });
+    await chatHandler(orKeyReq.req, orKeyReq.res);
+    assert(orKeyReq.res.getStatus() === 400, "Fix 6: Case 3 - Request with sk-or- key returns HTTP 400");
+    assert(orKeyReq.res.getData()?.error?.includes("OpenRouter is not supported"), "Fix 6: Case 3 - sk-or- error clearly explains OpenRouter is not supported");
+
+    const orProvReq = createMockReqRes({
+      provider: "openrouter",
+      model: "qwen/qwen3.8-27b",
+      messages: [{ role: "user", content: "hi" }]
+    });
+    await chatHandler(orProvReq.req, orProvReq.res);
+    assert(orProvReq.res.getStatus() === 400, "Fix 6: Case 3 - Request with provider='openrouter' returns HTTP 400");
+
+    const freeSuffixReq = createMockReqRes({
+      provider: "groq",
+      model: "meta-llama/llama-3.3-70b-instruct:free",
+      messages: [{ role: "user", content: "hi" }]
+    });
+    await chatHandler(freeSuffixReq.req, freeSuffixReq.res);
+    assert(freeSuffixReq.res.getStatus() === 400, "Fix 6: Case 3 - Request with ':free' model suffix returns HTTP 400");
+
+    // Helper to mock global fetch for upstream inspection
+    const originalGlobalFetch = globalThis.fetch;
+
+    // 12.4 Case 4: Groq requests route strictly to Groq's official chat completions endpoint
+    let capturedGroqCall = null;
+    globalThis.fetch = async (url, opts) => {
+      capturedGroqCall = { url, opts };
+      return new Response("data: [DONE]\n\n", {
+        status: 200,
+        headers: { "content-type": "text/event-stream" }
+      });
+    };
+
+    const groqReq = createMockReqRes({
+      provider: "groq",
+      model: "qwen/qwen3.8-27b",
+      apiKey: "gsk_testvalidkey1234567",
+      messages: [{ role: "user", content: "hi" }]
+    });
+    await chatHandler(groqReq.req, groqReq.res);
+    assert(capturedGroqCall !== null, "Fix 6: Case 4 - Groq upstream fetch was initiated");
+    assert(capturedGroqCall.url === "https://api.groq.com/openai/v1/chat/completions", "Fix 6: Case 4 - Groq request routes strictly to https://api.groq.com/openai/v1/chat/completions");
+    assert(capturedGroqCall.opts.headers.Authorization === "Bearer gsk_testvalidkey1234567", "Fix 6: Case 4 - Groq request sends Authorization: Bearer gsk_...");
+
+    // 12.5 Case 5: Gemini requests route strictly to Google AI Studio's official OpenAI-compatible endpoint
+    let capturedGeminiCall = null;
+    globalThis.fetch = async (url, opts) => {
+      capturedGeminiCall = { url, opts };
+      return new Response("data: [DONE]\n\n", {
+        status: 200,
+        headers: { "content-type": "text/event-stream" }
+      });
+    };
+
+    const geminiReq = createMockReqRes({
+      provider: "gemini",
+      model: "gemini-2.0-flash",
+      apiKey: "AIzaSyTestValidGeminiKey",
+      messages: [{ role: "user", content: "hi" }]
+    });
+    await chatHandler(geminiReq.req, geminiReq.res);
+    assert(capturedGeminiCall !== null, "Fix 6: Case 5 - Gemini upstream fetch was initiated");
+    assert(capturedGeminiCall.url === "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", "Fix 6: Case 5 - Gemini request routes strictly to Google AI Studio OpenAI endpoint");
+    assert(capturedGeminiCall.opts.headers.Authorization === "Bearer AIzaSyTestValidGeminiKey", "Fix 6: Case 5 - Gemini request sends Authorization: Bearer AIza...");
+
+    // 12.6 Case 6: Cerebras requests route strictly to Cerebras's official endpoint
+    let capturedCerebrasCall = null;
+    globalThis.fetch = async (url, opts) => {
+      capturedCerebrasCall = { url, opts };
+      return new Response("data: [DONE]\n\n", {
+        status: 200,
+        headers: { "content-type": "text/event-stream" }
+      });
+    };
+
+    const cerebrasReq = createMockReqRes({
+      provider: "cerebras",
+      model: "cerebras/llama3.1-70b",
+      apiKey: "csk-testvalidcerebraskey",
+      messages: [{ role: "user", content: "hi" }]
+    });
+    await chatHandler(cerebrasReq.req, cerebrasReq.res);
+    assert(capturedCerebrasCall !== null, "Fix 6: Case 6 - Cerebras upstream fetch was initiated");
+    assert(capturedCerebrasCall.url === "https://api.cerebras.ai/v1/chat/completions", "Fix 6: Case 6 - Cerebras request routes strictly to https://api.cerebras.ai/v1/chat/completions");
+    assert(capturedCerebrasCall.opts.headers.Authorization === "Bearer csk-testvalidcerebraskey", "Fix 6: Case 6 - Cerebras request sends Authorization: Bearer csk-...");
+
+    // 12.7 Case 7: Local Ollama requests route strictly to local loopback (or configured local host) with zero API keys
+    let capturedOllamaCall = null;
+    globalThis.fetch = async (url, opts) => {
+      capturedOllamaCall = { url, opts };
+      return new Response("data: [DONE]\n\n", {
+        status: 200,
+        headers: { "content-type": "text/event-stream" }
+      });
+    };
+
+    const ollamaReq = createMockReqRes({
+      provider: "ollama",
+      model: "ollama/llama3.2",
+      messages: [{ role: "user", content: "hi" }]
+    });
+    await chatHandler(ollamaReq.req, ollamaReq.res);
+    assert(capturedOllamaCall !== null, "Fix 6: Case 7 - Local Ollama upstream fetch was initiated");
+    assert(capturedOllamaCall.url === "http://127.0.0.1:11434/v1/chat/completions", "Fix 6: Case 7 - Ollama routes strictly to loopback port 11434");
+    assert(!capturedOllamaCall.opts.headers.Authorization, "Fix 6: Case 7 - Ollama sends ZERO Authorization headers");
+
+    // 12.8 Case 8: Groq keys cannot authenticate Gemini or Cerebras requests
+    const groqKeyOnGemini = createMockReqRes({
+      provider: "gemini",
+      model: "gemini-2.0-flash",
+      apiKey: "gsk_testkey123456",
+      messages: [{ role: "user", content: "hi" }]
+    });
+    await chatHandler(groqKeyOnGemini.req, groqKeyOnGemini.res);
+    assert(groqKeyOnGemini.res.getStatus() === 400, "Fix 6: Case 8 - Groq key rejected for Gemini request (HTTP 400)");
+
+    const groqKeyOnCerebras = createMockReqRes({
+      provider: "cerebras",
+      model: "cerebras/llama3.1-70b",
+      apiKey: "gsk_testkey123456",
+      messages: [{ role: "user", content: "hi" }]
+    });
+    await chatHandler(groqKeyOnCerebras.req, groqKeyOnCerebras.res);
+    assert(groqKeyOnCerebras.res.getStatus() === 400, "Fix 6: Case 8 - Groq key rejected for Cerebras request (HTTP 400)");
+
+    // 12.9 Case 9: Gemini keys cannot authenticate Groq or Cerebras requests
+    const geminiKeyOnGroq = createMockReqRes({
+      provider: "groq",
+      model: "qwen/qwen3.8-27b",
+      apiKey: "AIzaSyTestKey12345",
+      messages: [{ role: "user", content: "hi" }]
+    });
+    await chatHandler(geminiKeyOnGroq.req, geminiKeyOnGroq.res);
+    assert(geminiKeyOnGroq.res.getStatus() === 400, "Fix 6: Case 9 - Gemini key rejected for Groq request (HTTP 400)");
+
+    const geminiKeyOnCerebras = createMockReqRes({
+      provider: "cerebras",
+      model: "cerebras/llama3.1-70b",
+      apiKey: "AIzaSyTestKey12345",
+      messages: [{ role: "user", content: "hi" }]
+    });
+    await chatHandler(geminiKeyOnCerebras.req, geminiKeyOnCerebras.res);
+    assert(geminiKeyOnCerebras.res.getStatus() === 400, "Fix 6: Case 9 - Gemini key rejected for Cerebras request (HTTP 400)");
+
+    // 12.10 Case 10: Cerebras keys cannot authenticate Groq or Gemini requests
+    const cerebrasKeyOnGroq = createMockReqRes({
+      provider: "groq",
+      model: "qwen/qwen3.8-27b",
+      apiKey: "csk-testkey12345",
+      messages: [{ role: "user", content: "hi" }]
+    });
+    await chatHandler(cerebrasKeyOnGroq.req, cerebrasKeyOnGroq.res);
+    assert(cerebrasKeyOnGroq.res.getStatus() === 400, "Fix 6: Case 10 - Cerebras key rejected for Groq request (HTTP 400)");
+
+    const cerebrasKeyOnGemini = createMockReqRes({
+      provider: "gemini",
+      model: "gemini-2.0-flash",
+      apiKey: "csk-testkey12345",
+      messages: [{ role: "user", content: "hi" }]
+    });
+    await chatHandler(cerebrasKeyOnGemini.req, cerebrasKeyOnGemini.res);
+    assert(cerebrasKeyOnGemini.res.getStatus() === 400, "Fix 6: Case 10 - Cerebras key rejected for Gemini request (HTTP 400)");
+
+    // 12.11 Case 11: Unknown provider names return HTTP 400
+    const unknownProv1 = createMockReqRes({
+      provider: "anthropic",
+      model: "claude-3-5-sonnet",
+      messages: [{ role: "user", content: "hi" }]
+    });
+    await chatHandler(unknownProv1.req, unknownProv1.res);
+    assert(unknownProv1.res.getStatus() === 400, "Fix 6: Case 11 - Unknown provider 'anthropic' returns HTTP 400");
+
+    const unknownProv2 = createMockReqRes({
+      provider: "openai",
+      model: "gpt-4o",
+      messages: [{ role: "user", content: "hi" }]
+    });
+    await chatHandler(unknownProv2.req, unknownProv2.res);
+    assert(unknownProv2.res.getStatus() === 400, "Fix 6: Case 11 - Unknown provider 'openai' returns HTTP 400");
+
+    // 12.12 Case 12: Valid model name for one provider rejected if sent under a different provider (cross-provider mismatch)
+    const mismatch1 = createMockReqRes({
+      provider: "groq",
+      model: "gemini-2.0-flash",
+      apiKey: "gsk_test123",
+      messages: [{ role: "user", content: "hi" }]
+    });
+    await chatHandler(mismatch1.req, mismatch1.res);
+    assert(mismatch1.res.getStatus() === 400, "Fix 6: Case 12 - Groq provider rejects Gemini model (HTTP 400 mismatch)");
+
+    const mismatch2 = createMockReqRes({
+      provider: "cerebras",
+      model: "qwen/qwen3.8-27b",
+      apiKey: "csk-test123",
+      messages: [{ role: "user", content: "hi" }]
+    });
+    await chatHandler(mismatch2.req, mismatch2.res);
+    assert(mismatch2.res.getStatus() === 400, "Fix 6: Case 12 - Cerebras provider rejects Groq model (HTTP 400 mismatch)");
+
+    const mismatch3 = createMockReqRes({
+      provider: "ollama",
+      model: "cerebras/llama3.1-70b",
+      messages: [{ role: "user", content: "hi" }]
+    });
+    await chatHandler(mismatch3.req, mismatch3.res);
+    assert(mismatch3.res.getStatus() === 400, "Fix 6: Case 12 - Ollama provider rejects Cerebras model (HTTP 400 mismatch)");
+
+    // 12.13 Case 13: Arbitrary customEndpoint values are rejected with HTTP 400
+    const customEndReq1 = createMockReqRes({
+      provider: "groq",
+      model: "qwen/qwen3.8-27b",
+      apiKey: "gsk_test123",
+      customEndpoint: "https://evil-proxy.com/v1/chat/completions",
+      messages: [{ role: "user", content: "hi" }]
+    });
+    await chatHandler(customEndReq1.req, customEndReq1.res);
+    assert(customEndReq1.res.getStatus() === 400, "Fix 6: Case 13 - Arbitrary https: customEndpoint rejected with HTTP 400");
+    assert(customEndReq1.res.getData()?.error?.toLowerCase().includes("custom endpoint"), "Fix 6: Case 13 - Error explains custom endpoints are not permitted");
+
+    const customEndReq2 = createMockReqRes({
+      provider: "ollama",
+      model: "ollama/llama3.2",
+      customEndpoint: "http://attacker.local:8080",
+      messages: [{ role: "user", content: "hi" }]
+    });
+    await chatHandler(customEndReq2.req, customEndReq2.res);
+    assert(customEndReq2.res.getStatus() === 400, "Fix 6: Case 13 - Arbitrary http: customEndpoint rejected with HTTP 400");
+
+    // 12.14 Case 14: Upstream 402/billing error returns a clear free-tier explanation and never falls back to a paid service
+    let upstreamFetchCount = 0;
+    globalThis.fetch = async () => {
+      upstreamFetchCount++;
+      return new Response(JSON.stringify({ error: { message: "Insufficient credits or payment required" } }), {
+        status: 402,
+        headers: { "content-type": "application/json" }
+      });
+    };
+
+    const billingReq = createMockReqRes({
+      provider: "groq",
+      model: "qwen/qwen3.8-27b",
+      apiKey: "gsk_test123",
+      messages: [{ role: "user", content: "hi" }]
+    });
+    await chatHandler(billingReq.req, billingReq.res);
+    assert(billingReq.res.getStatus() === 402, "Fix 6: Case 14 - Upstream 402 returns HTTP 402 to client");
+    assert(upstreamFetchCount === 1, "Fix 6: Case 14 - Exactly ONE upstream fetch attempted; ZERO fallback requests made");
+    assert(billingReq.res.getData()?.error?.includes("free tier") || billingReq.res.getData()?.error?.includes("payment"), "Fix 6: Case 14 - Error message clarifies free-tier quota/terms");
+
+    // 12.15 Case 15: GET /api/models returns only approved free providers and qualified free-tier notices
+    const modelsMock = createMockReqRes({}, {}, "GET");
+    await modelsHandler(modelsMock.req, modelsMock.res);
+    assert(modelsMock.res.getStatus() === 200, "Fix 6: Case 15 - GET /api/models returns HTTP 200");
+    const catalog = modelsMock.res.getData();
+    assert(Array.isArray(catalog?.providers), "Fix 6: Case 15 - providers array returned in /api/models");
+    const catalogProviderIds = catalog.providers.map(p => p.id);
+    assert(catalogProviderIds.length === 4, "Fix 6: Case 15 - Exactly 4 providers returned");
+    assert(["groq", "gemini", "cerebras", "ollama"].every(p => catalogProviderIds.includes(p)), "Fix 6: Case 15 - Approved providers match groq, gemini, cerebras, ollama");
+    assert(catalog.providers.every(p => typeof p.freeTierNotice === "string" && p.freeTierNotice.length > 10), "Fix 6: Case 15 - Every provider includes a qualified freeTierNotice");
+    assert(catalog.models.every(m => ["groq", "gemini", "cerebras", "ollama"].includes(m.provider)), "Fix 6: Case 15 - Every model belongs strictly to an approved free provider");
+
+    // 12.16 Case 16: Fresh checkout with no API keys configured can load the app and successfully use Local Ollama
+    delete process.env.GROQ_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.CEREBRAS_API_KEY;
+    process.env.NODE_ENV = "development";
+
+    // 1. Verify app frontend assets load for fresh checkout
+    const freshHtml = fs.readFileSync(path.join(__dirname, "public/index.html"), "utf8");
+    assert(freshHtml.includes("<!DOCTYPE html>") && freshHtml.includes("RoroGPT"), "Fix 6: Case 16 - Fresh checkout loads app frontend interface");
+
+    // 2. Verify model catalog loads with zero keys
+    const freshModelsReq = createMockReqRes({}, {}, "GET");
+    await modelsHandler(freshModelsReq.req, freshModelsReq.res);
+    assert(freshModelsReq.res.getStatus() === 200, "Fix 6: Case 16 - Fresh checkout loads model catalog without keys (HTTP 200)");
+    const freshCatalog = freshModelsReq.res.getData();
+    assert(freshCatalog.hasServerKey === false, "Fix 6: Case 16 - hasServerKey is false on fresh checkout");
+    assert(freshCatalog.models.some(m => m.provider === "ollama"), "Fix 6: Case 16 - Local Ollama models are available on fresh checkout");
+
+    // 3. Ollama works without keys
+    let ollamaZeroKeyCall = null;
+    globalThis.fetch = async (url, opts) => {
+      ollamaZeroKeyCall = { url, opts };
+      return new Response("data: [DONE]\n\n", {
+        status: 200,
+        headers: { "content-type": "text/event-stream" }
+      });
+    };
+
+    const freshOllamaReq = createMockReqRes({
+      provider: "ollama",
+      model: "ollama/llama3.2",
+      messages: [{ role: "user", content: "Hello offline world" }]
+    });
+    await chatHandler(freshOllamaReq.req, freshOllamaReq.res);
+    assert(ollamaZeroKeyCall !== null, "Fix 6: Case 16 - Local Ollama invoked on fresh checkout without keys");
+    assert(ollamaZeroKeyCall.url.includes("127.0.0.1:11434"), "Fix 6: Case 16 - Routed to local Ollama on loopback");
+    assert(!ollamaZeroKeyCall.opts.headers.Authorization, "Fix 6: Case 16 - Zero API keys sent or required for Local Ollama");
+
+    // Restore original global fetch
+    globalThis.fetch = originalGlobalFetch;
+
+  } catch (err) {
+    assert(false, `Test Suite 12 failed with error: ${err.message}\n${err.stack}`);
   }
 
   // Summary

@@ -3,14 +3,28 @@
  * Powered by 100% Free AI Models (Groq, Gemini, Cerebras, Local Ollama) & Vercel
  */
 
-// Default Configuration: 100% Free & Fastest Model by Default (Groq Qwen 3.8 27B or GPT OSS 120B)
+// Default Configuration: Free-Tier Provider Model by Default (Groq Qwen 3.8 27B)
 const DEFAULT_CHAT_MODEL = "qwen/qwen3.8-27b";
 const DEFAULT_EMBEDDING_MODEL = "free-fast-vector";
 
+function inferProvider(modelId) {
+  if (!modelId) return "groq";
+  if (modelId.startsWith("ollama/")) return "ollama";
+  if (modelId.startsWith("cerebras/")) return "cerebras";
+  if (modelId.startsWith("gemini-")) return "gemini";
+  return "groq";
+}
+
 let initialModel = localStorage.getItem("roro_active_model");
-if (!initialModel || initialModel.includes("llama-3.1") || initialModel.includes("llama-3.3")) {
+if (!initialModel || initialModel.includes(":free") || initialModel.includes("openrouter") || initialModel.includes("meta-llama/")) {
   initialModel = DEFAULT_CHAT_MODEL;
   localStorage.setItem("roro_active_model", DEFAULT_CHAT_MODEL);
+}
+
+let initialProvider = localStorage.getItem("roro_active_provider") || inferProvider(initialModel);
+if (initialProvider === "openrouter" || initialProvider === "local") {
+  initialProvider = inferProvider(initialModel);
+  localStorage.setItem("roro_active_provider", initialProvider);
 }
 
 // Theme default: Clean Daylight on start
@@ -28,6 +42,7 @@ if (!defaultMigrated) {
 // State
 const state = {
   activeModel: initialModel,
+  activeProvider: initialProvider,
   activeEmbeddingModel: localStorage.getItem("roro_active_embed_model") || DEFAULT_EMBEDDING_MODEL,
   apiKey: localStorage.getItem("roro_api_key") || "",
   appToken: localStorage.getItem("roro_app_token") || "",
@@ -622,43 +637,47 @@ async function fetchModels() {
     }
     updateApiKeyBadge(data.hasServerKey);
   } catch {
-    // Fallback model list
+    // Fallback model list (Free-tier models: Groq, Gemini, Cerebras, Ollama)
     state.models = [
       {
-        id: "meta-llama/llama-3.3-70b-instruct:free",
-        name: "Llama 3.3 70B",
-        tagline: "Top All-Rounder",
-        badge: "★ Best",
-        color: "#8b5cf6",
-        icon: "🦙",
-        description: "Meta's flagship 70B model. Superior reasoning & coding."
-      },
-      {
-        id: "deepseek/deepseek-r1:free",
-        name: "DeepSeek R1",
-        tagline: "Deep Reasoning",
-        badge: "Thinking",
-        color: "#3b82f6",
-        icon: "🧠",
-        description: "Chain-of-thought thinking for math, logic and coding."
-      },
-      {
-        id: "google/gemini-2.0-flash-exp:free",
-        name: "Gemini 2.0 Flash",
-        tagline: "Ultra Low Latency",
-        badge: "Fastest",
+        id: "qwen/qwen3.8-27b",
+        name: "Qwen 3.8 27B (Groq)",
+        provider: "groq",
+        speed: "⚡ Ultra-Fast (~0.2s)",
+        badge: "Fast & Capable",
         color: "#10b981",
-        icon: "⚡",
-        description: "Google's ultra fast multimodal model with large context."
+        icon: "🚀",
+        description: "Alibaba's 27B model on Groq LPUs. Available on Groq developer free tier."
       },
       {
-        id: "qwen/qwen-2.5-coder-32b-instruct:free",
-        name: "Qwen 2.5 Coder 32B",
-        tagline: "Coding Specialist",
-        badge: "Code",
-        color: "#f59e0b",
-        icon: "💻",
-        description: "Exceptional coding accuracy and syntax generation."
+        id: "gemini-2.0-flash",
+        name: "Gemini 2.0 Flash (Google)",
+        provider: "gemini",
+        speed: "⚡ Instant (~0.3s)",
+        badge: "Multimodal",
+        color: "#3b82f6",
+        icon: "✨",
+        description: "Next-gen multimodal model from Google AI Studio free tier."
+      },
+      {
+        id: "cerebras/llama3.1-70b",
+        name: "Llama 3.1 70B (Cerebras)",
+        provider: "cerebras",
+        speed: "⚡ Blazing (~1800 tok/s)",
+        badge: "Speed King",
+        color: "#8b5cf6",
+        icon: "⚡",
+        description: "Ultra-fast Llama 3.1 70B on Cerebras CS-3. Available on Cerebras free tier."
+      },
+      {
+        id: "ollama/llama3.2",
+        name: "Llama 3.2 3B (Local Ollama)",
+        provider: "ollama",
+        speed: "💻 Local CPU/GPU",
+        badge: "100% Offline",
+        color: "#06b6d4",
+        icon: "🦙",
+        description: "Runs completely locally on your hardware. Zero API keys required."
       }
     ];
   }
@@ -688,26 +707,26 @@ function updateApiKeyBadge(hasServerKey) {
   const dot = DOM.apiKeyStatusBadge.querySelector(".status-dot");
   const text = DOM.apiKeyStatusBadge.querySelector(".status-text");
 
-  if (k.startsWith("gsk_")) {
+  if (k.startsWith("sk-or-")) {
+    dot.className = "status-dot";
+    text.textContent = "⚠️ OpenRouter Unsupported";
+    DOM.apiKeyStatusBadge.title = "OpenRouter is not supported. Use Groq (gsk_), Gemini (AIza), Cerebras (csk-), or Local Ollama.";
+  } else if (k.startsWith("gsk_")) {
     dot.className = "status-dot active";
     text.textContent = "⚡ Groq Free Key Active";
-    DOM.apiKeyStatusBadge.title = "Connected to Groq (100% Free, 500 tok/s)";
+    DOM.apiKeyStatusBadge.title = "Connected to Groq Developer Free Tier";
   } else if (k.startsWith("AIza")) {
     dot.className = "status-dot active";
     text.textContent = "🌟 Gemini Free Key Active";
-    DOM.apiKeyStatusBadge.title = "Connected to Google AI Studio (100% Free)";
+    DOM.apiKeyStatusBadge.title = "Connected to Google AI Studio Free Tier";
   } else if (k.startsWith("csk-")) {
     dot.className = "status-dot active";
     text.textContent = "⚡ Cerebras Key Active";
-    DOM.apiKeyStatusBadge.title = "Connected to Cerebras Cloud (1800+ tok/s)";
-  } else if (state.activeModel.startsWith("ollama/")) {
+    DOM.apiKeyStatusBadge.title = "Connected to Cerebras Cloud Free Tier";
+  } else if (state.activeProvider === "ollama" || (state.activeModel && state.activeModel.startsWith("ollama/"))) {
     dot.className = "status-dot active";
     text.textContent = "💻 Local Ollama (Offline)";
-    DOM.apiKeyStatusBadge.title = "Connected to Local Ollama (0 Keys Required)";
-  } else if (k.startsWith("sk-or-")) {
-    dot.className = "status-dot active";
-    text.textContent = "OpenRouter Key Active";
-    DOM.apiKeyStatusBadge.title = "Connected to OpenRouter";
+    DOM.apiKeyStatusBadge.title = "Connected to Local Ollama (Zero API keys required)";
   } else if (hasUserKey) {
     dot.className = "status-dot active";
     text.textContent = "Custom Key Active";
@@ -717,20 +736,34 @@ function updateApiKeyBadge(hasServerKey) {
   } else {
     dot.className = "status-dot";
     text.textContent = "No Free Key Set";
-    DOM.apiKeyStatusBadge.title = "Click Settings to paste your 100% free Groq or Gemini key";
+    DOM.apiKeyStatusBadge.title = "Click Settings to paste your free Groq, Gemini, or Cerebras key, or use Local Ollama";
   }
 }
 
-function selectModel(modelId) {
+function selectModel(modelId, provider) {
   state.activeModel = modelId;
   localStorage.setItem("roro_active_model", modelId);
+
+  const resolveModelProvider = (id) => {
+    if (typeof inferProvider === "function") return inferProvider(id);
+    if (!id) return "groq";
+    if (id.startsWith("ollama/")) return "ollama";
+    if (id.startsWith("cerebras/")) return "cerebras";
+    if (id.startsWith("gemini-")) return "gemini";
+    return "groq";
+  };
 
   const modelObj = state.models.find(m => m.id === modelId) || {
     id: modelId,
     name: modelId.split("/").pop().replace(":free", ""),
-    speed: "⚡ Free",
+    provider: provider || resolveModelProvider(modelId),
+    speed: "⚡ Free Tier",
     color: "#10b981"
   };
+
+  const resolvedProvider = provider || modelObj.provider || resolveModelProvider(modelId);
+  state.activeProvider = resolvedProvider;
+  localStorage.setItem("roro_active_provider", resolvedProvider);
 
   const isBest = modelId === DEFAULT_CHAT_MODEL;
 
@@ -751,12 +784,13 @@ function selectModel(modelId) {
 
   // Update welcome hero
   if (DOM.welcomeActiveModel) {
-    DOM.welcomeActiveModel.textContent = `${modelObj.name} (${modelObj.speed || "100% Free"})`;
+    DOM.welcomeActiveModel.textContent = `${modelObj.name} (${modelObj.speed || "Free Tier"})`;
   }
 
   // Close dropdown
   DOM.modelPillContainer.classList.remove("open");
   renderModelsUI();
+  if (typeof updateApiKeyBadge === "function") updateApiKeyBadge();
 
   if (modelId.includes("r1")) {
     showToast(`DeepSeek R1 selected. Note: Generates deep reasoning before answering (~30-90s). Switch to Gemini 2.0 Flash for instant replies!`, "info");
@@ -821,7 +855,7 @@ function renderModelsUI() {
 
     item.appendChild(optionLeft);
     item.appendChild(badgeSpan);
-    item.addEventListener("click", () => selectModel(m.id));
+    item.addEventListener("click", () => selectModel(m.id, m.provider));
     DOM.dropdownModelsList.appendChild(item);
   });
 
@@ -884,7 +918,7 @@ function renderModelsUI() {
     card.appendChild(descDiv);
     card.appendChild(idDiv);
 
-    card.addEventListener("click", () => selectModel(m.id));
+    card.addEventListener("click", () => selectModel(m.id, m.provider));
     DOM.fullModelsGrid.appendChild(card);
   });
 }
@@ -2700,6 +2734,7 @@ async function sendMessage() {
       method: "POST",
       headers: chatHeaders,
       body: JSON.stringify({
+        provider: state.activeProvider || inferProvider(state.activeModel),
         messages: currentChat.messages.slice(0, -1).map(m => ({ role: m.role, content: m.content })),
         model: state.activeModel,
         systemPrompt: state.systemPrompt,

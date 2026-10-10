@@ -86,7 +86,7 @@ export default async function handler(req, res) {
   const inputs = Array.isArray(input) ? input : [input];
   const dims = model === "free-multilingual-ngram" ? 512 : 256;
 
-  // Compute 100% free embeddings without depending on paid OpenRouter credits
+  // Compute free local embeddings without external API dependencies or paid credits
   const data = inputs.map((text, idx) => ({
     object: "embedding",
     index: idx,

@@ -227,8 +227,8 @@
                 <span class="pulsing-dot"></span>
                 <span>Active Model: <strong id="welcomeActiveModel">Llama 3.3 70B (⚡ Instant & Free)</strong></span>
               </div>
-              <div class="active-pill openrouter-free">
-                <span>100% Free Tier • 0 Cost</span>
+              <div class="active-pill free-tier-pill">
+                <span>Eligible Free Tier & Local • No Payments</span>
               </div>
             </div>
           </div>
@@ -419,21 +419,27 @@
         <!-- API Key Section -->
         <div class="form-group">
           <label for="apiKeyInput" class="form-label">
-            <span>Free AI API Key (Groq / Gemini / OpenRouter)</span>
+            <span>Free-Tier AI API Key (Groq / Gemini / Cerebras)</span>
           </label>
           <div class="input-with-action">
-            <input type="password" id="apiKeyInput" placeholder="gsk_... (Groq) or AIza... (Gemini) or sk-or-... (OpenRouter)" autocomplete="off">
+            <input type="password" id="apiKeyInput" placeholder="gsk_... (Groq) or AIza... (Gemini) or csk-... (Cerebras) - Or use Local Ollama" autocomplete="off">
             <button class="input-action-btn" id="toggleApiKeyVisibility" title="Show/Hide">👁️</button>
           </div>
           <div class="provider-shortcuts">
             <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer" class="provider-badge groq">
-              ⚡ Get Free Groq Key (Recommended • No Card • 500 tok/s) ↗
+              ⚡ Get Free Groq Key (Recommended • Developer Tier) ↗
             </a>
             <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" class="provider-badge gemini">
-              🌟 Get Free Gemini Key (Google • 1,500 req/day) ↗
+              🌟 Get Free Gemini Key (Google AI Studio Tier) ↗
+            </a>
+            <a href="https://cloud.cerebras.ai" target="_blank" rel="noopener noreferrer" class="provider-badge cerebras" style="background: rgba(139, 92, 246, 0.15); color: #8b5cf6; border: 1px solid rgba(139, 92, 246, 0.3);">
+              ⚡ Get Free Cerebras Key (Developer Tier) ↗
+            </a>
+            <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" class="provider-badge ollama" style="background: rgba(100, 116, 139, 0.15); color: #94a3b8; border: 1px solid rgba(100, 116, 139, 0.3);">
+              💻 Local Ollama (Zero Keys Required) ↗
             </a>
           </div>
-          <small class="form-hint">Stored safely in browser. Groq and Gemini keys are <strong>100% Free</strong> with no credit card or purchase ever required.</small>
+          <small class="form-hint">Stored locally in your browser. Provider access depends on applicable free/developer tiers. Local Ollama runs on your PC with zero API keys and zero payments.</small>
         </div>
 
         <!-- Optional Deployment Access Token (APP_API_TOKEN) -->

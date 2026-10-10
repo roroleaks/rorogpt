@@ -1093,7 +1093,7 @@ body {
   color: var(--text-muted);
 }
 
-.active-pill.openrouter-free {
+.active-pill.free-tier-pill {
   border-color: rgba(16, 185, 129, 0.3);
   color: #10b981;
 }

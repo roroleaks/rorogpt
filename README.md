@@ -12,33 +12,42 @@
 
 ---
 
-## ✨ 100% Free & Blazing Fast AI
+## ✨ Free-Tier AI & No-Payment Provider Policy
 
-RoroGPT eliminates long waiting times and paid credit blocks by supporting the world's best permanent free AI providers with **ZERO credit card** and **ZERO credit purchases** required:
+RoroGPT is strictly designed for **free AI access with zero paid credits, zero purchases, and no billing requirement**. OpenRouter and all paid-only services are completely unsupported.
 
-### 1. ⚡ Groq Cloud (Recommended • 500-800 tok/s)
-- **100% Free forever** with no credit card required.
-- **Generates answers in ~0.2 to 0.4 seconds** on custom LPUs (solves the 2-minute delay).
-- **Flagship Models**:
-  - `llama-3.3-70b-versatile`: Meta's 70B flagship model (128K context).
-  - `llama-3.1-8b-instant`: Instant sub-second responses (~800 tok/s).
-  - `deepseek-r1-distill-llama-70b`: Deep reasoning with chain-of-thought in 2-4 seconds.
-  - `gemma2-9b-it`: Google's 9B instruction model.
-  - `mixtral-8x7b-32768`: 32K context mixture-of-experts.
-- **Get Free Key**: [console.groq.com/keys](https://console.groq.com/keys) (Instant 10-second setup, no card).
+RoroGPT supports four distinct free-access options:
 
-### 2. 🌟 Google Gemini (Google AI Studio)
-- **100% Free** permanent developer tier (1,500 requests/day, no credit card).
-- **Models**: `gemini-2.0-flash`, `gemini-1.5-flash` with 1M token context.
+### 1. ⚡ Groq Cloud (Developer Free Tier • Ultra-Fast)
+- **Status**: Available on Groq's developer free tier where eligible (subject to Groq terms and rate limits).
+- **Performance**: Generates answers in sub-second speeds (~500 tok/s) on custom LPUs.
+- **Models**:
+  - `qwen/qwen3.8-27b`: Fast and capable 27B model on Groq LPUs.
+  - `openai/gpt-oss-120b`: Flagship 120B reasoning model with 131K context.
+  - `openai/gpt-oss-20b`: Fast 20B model for coding and concise answers.
+  - `deepseek-r1-distill-llama-70b`: Deep reasoning with chain-of-thought.
+  - `allam-2-7b`: 7B Arabic/English bilingual model.
+- **Get Free Key**: [console.groq.com/keys](https://console.groq.com/keys) (Groq developer tier account required).
+
+### 2. 🌟 Google Gemini (Google AI Studio Free Tier)
+- **Status**: Available on Google AI Studio's free tier where eligible (subject to regional availability and quota policies).
+- **Models**: `gemini-2.0-flash`, `gemini-2.0-flash-lite`, `gemini-1.5-pro` with large context windows.
 - **Get Free Key**: [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
 
-### 3. 🚀 Cerebras Cloud (Awesome Free API)
-- **1800+ tokens/second** world-record inference on CS-3 wafer-scale engines.
-- **Models**: `llama3.3-70b`, `llama3.1-8b`.
+### 3. 🚀 Cerebras Cloud (Developer Free Tier)
+- **Status**: Available on Cerebras Cloud free tier where eligible (subject to Cerebras rate limits and terms).
+- **Performance**: 1800+ tokens/second inference on CS-3 wafer-scale engines.
+- **Models**: `cerebras/llama3.1-70b`, `cerebras/llama3.1-8b`.
+- **Get Free Key**: [cloud.cerebras.ai](https://cloud.cerebras.ai).
 
-### 4. 💻 Local Ollama / Odysseus (100% Offline & Private)
-- **Zero API keys needed**. Runs directly on your PC hardware via Ollama (`http://localhost:11434`).
-- **Models**: `ollama/llama3`, `ollama/deepseek-r1`, `ollama/mistral`.
+### 4. 💻 Local Ollama (100% Offline & Private)
+- **Status**: Completely free and runs locally on your PC hardware.
+- **Keys**: **Zero API keys needed**. No cloud data sharing or payment accounts.
+- **Setup**: Install [Ollama](https://ollama.com) on your machine. Start Ollama and pull any model (e.g. `ollama run llama3.2`).
+- **Default Endpoint**: `http://127.0.0.1:11434`. Configurable via `OLLAMA_BASE_URL`.
+- **Models**: `ollama/llama3.2`, `ollama/mistral`, `ollama/qwen2.5-coder`, `ollama/deepseek-r1`.
+
+> **Note on Free Tiers**: Third-party cloud free tiers (Groq, Gemini, Cerebras) are governed by their respective providers' usage quotas, regional eligibility, and terms of service. Local Ollama operates entirely on your hardware with zero API keys or limits.
 
 ---
 

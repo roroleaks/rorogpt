@@ -1,4 +1,10 @@
 import { handleCors, checkAuth, enforceRateLimit } from "./_security.js";
+import {
+  SUPPORTED_PROVIDERS,
+  PROVIDER_CONFIGS,
+  getModelById,
+  getDefaultModel
+} from "./models.js";
 
 export default async function handler(req, res) {
   if (!handleCors(req, res, "POST, OPTIONS")) {
@@ -30,86 +36,136 @@ export default async function handler(req, res) {
 
   const {
     messages = [],
-    model = "qwen/qwen3.8-27b",
+    provider: requestedProvider,
+    model = getDefaultModel(),
     systemPrompt = "",
+    skillPrompt = "",
     temperature = 0.7,
     apiKey: clientApiKey = "",
     customEndpoint = ""
   } = body || {};
 
-  const isLocalOllama = model.startsWith("ollama/") || customEndpoint.includes("11434");
+  // 1. Strict Rejection of OpenRouter
+  const rawModel = typeof model === "string" ? model.trim() : "";
+  const rawApiKey = typeof clientApiKey === "string" ? clientApiKey.trim() : "";
+  const reqHeaderProvider = req.headers["x-provider"] || "";
 
-  let headerKey = req.headers["authorization"]?.replace("Bearer ", "").trim() || "";
-  if (headerKey && process.env.APP_API_TOKEN && headerKey === process.env.APP_API_TOKEN) {
-    headerKey = ""; // App access token, not upstream provider key
-  }
-  const envKey = (process.env.GROQ_API_KEY || process.env.GEMINI_API_KEY || process.env.CEREBRAS_API_KEY || "").trim();
-  const finalApiKey = (clientApiKey && clientApiKey.trim()) || headerKey || envKey;
-
-  if (!finalApiKey && !isLocalOllama) {
-    return res.status(401).json({
-      error: "No API key found. Please open Settings ⚙️ and paste your 100% Free API Key from Groq (https://console.groq.com/keys - Instant, no credit card, 500 tok/s) or Google AI Studio (https://aistudio.google.com/apikey - Free 1,500 req/day), or switch to Local Ollama."
+  if (
+    requestedProvider === "openrouter" ||
+    reqHeaderProvider === "openrouter" ||
+    rawModel.includes("openrouter") ||
+    rawModel.endsWith(":free") ||
+    rawApiKey.startsWith("sk-or-")
+  ) {
+    return res.status(400).json({
+      error: "OpenRouter is not supported. RoroGPT enforces a strict free-only policy with zero paid credits and zero purchases. Please select Groq, Google Gemini, Cerebras, or Local Ollama."
     });
+  }
+
+  // 2. Reject Arbitrary Browser-Supplied Endpoints
+  if (customEndpoint && typeof customEndpoint === "string" && customEndpoint.trim()) {
+    return res.status(400).json({
+      error: "Arbitrary custom endpoints are not permitted. Only server-configured endpoints for Groq, Gemini, Cerebras, and Local Ollama are supported."
+    });
+  }
+
+  // 3. Resolve and Validate Provider and Model
+  let resolvedProvider;
+  let modelEntry;
+
+  if (requestedProvider) {
+    if (!SUPPORTED_PROVIDERS.includes(requestedProvider)) {
+      return res.status(400).json({
+        error: `Unknown provider '${requestedProvider}'. Supported free-only providers are: ${SUPPORTED_PROVIDERS.join(", ")}.`
+      });
+    }
+
+    modelEntry = getModelById(rawModel);
+    if (!modelEntry) {
+      return res.status(400).json({
+        error: `Model '${rawModel}' is not recognized in the free-only catalog.`
+      });
+    }
+
+    if (modelEntry.provider !== requestedProvider) {
+      return res.status(400).json({
+        error: `Model '${rawModel}' belongs to provider '${modelEntry.provider}', not '${requestedProvider}'. Each model must belong to its configured provider.`
+      });
+    }
+
+    resolvedProvider = requestedProvider;
+  } else {
+    // Backward compatibility: resolve provider strictly via server-owned catalog
+    modelEntry = getModelById(rawModel);
+    if (!modelEntry) {
+      return res.status(400).json({
+        error: `Model '${rawModel}' is not recognized in the free-only catalog. Please select an eligible model from Groq, Gemini, Cerebras, or Local Ollama.`
+      });
+    }
+
+    resolvedProvider = modelEntry.provider;
+  }
+
+  const providerConfig = PROVIDER_CONFIGS[resolvedProvider];
+  if (!providerConfig) {
+    return res.status(400).json({
+      error: `Configuration for provider '${resolvedProvider}' is not available.`
+    });
+  }
+
+  // 4. API Key Resolution and Strict Provider Key Isolation
+  let finalApiKey = "";
+
+  if (providerConfig.requiresKey) {
+    if (rawApiKey) {
+      // Validate key prefix against provider to prevent cross-provider key leakage
+      if (
+        (resolvedProvider === "groq" && (rawApiKey.startsWith("AIza") || rawApiKey.startsWith("csk-"))) ||
+        (resolvedProvider === "gemini" && (rawApiKey.startsWith("gsk_") || rawApiKey.startsWith("csk-"))) ||
+        (resolvedProvider === "cerebras" && (rawApiKey.startsWith("gsk_") || rawApiKey.startsWith("AIza")))
+      ) {
+        return res.status(400).json({
+          error: `The provided API key does not match provider '${resolvedProvider}'. Please provide a valid key for ${providerConfig.name}.`
+        });
+      }
+      finalApiKey = rawApiKey;
+    } else {
+      // Use strictly the server-configured environment variable for this specific provider
+      const envKey = (process.env[providerConfig.envKeyName] || "").trim();
+      if (envKey) {
+        finalApiKey = envKey;
+      }
+    }
+
+    if (!finalApiKey) {
+      return res.status(401).json({
+        error: `No API key found for ${providerConfig.name}. Please enter your free ${providerConfig.name} key in Settings ⚙️ (${providerConfig.keyUrl}) or select Local Ollama to chat with zero keys.`
+      });
+    }
   }
 
   if (!Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: "Messages array cannot be empty." });
   }
 
-  // Determine provider endpoint and target model
-  let endpoint = "https://api.groq.com/openai/v1/chat/completions";
-  let targetModel = model;
+  // 5. Target Model and Upstream Headers
+  const targetModel = resolvedProvider === "ollama"
+    ? modelEntry.id.replace(/^ollama\//, "")
+    : resolvedProvider === "cerebras"
+    ? modelEntry.id.replace(/^cerebras\//, "")
+    : modelEntry.id;
+
   const upstreamHeaders = {
     "Content-Type": "application/json"
   };
 
-  if (finalApiKey) {
+  if (finalApiKey && providerConfig.requiresKey) {
     upstreamHeaders["Authorization"] = `Bearer ${finalApiKey}`;
   }
 
-  if (customEndpoint && customEndpoint.trim()) {
-    endpoint = customEndpoint.trim();
-  } else if (isLocalOllama) {
-    endpoint = "http://127.0.0.1:11434/v1/chat/completions";
-    targetModel = model.replace("ollama/", "");
-  } else if (finalApiKey.startsWith("csk-") || model.includes("cerebras") || targetModel === "llama3.3-70b" || targetModel === "llama3.1-8b") {
-    endpoint = "https://api.cerebras.ai/v1/chat/completions";
-  } else if (finalApiKey.startsWith("AIza") || model.startsWith("gemini-")) {
-    endpoint = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
-    targetModel = model.replace(":free", "");
-    if (!targetModel.startsWith("gemini-")) {
-      targetModel = "gemini-2.0-flash";
-    }
-  } else if (finalApiKey.startsWith("gsk_") || model.includes("qwen") || model.includes("gpt-oss") || model.includes("allam") || model.includes("llama") || model.includes("versatile") || model.includes("instant") || model.includes("distill")) {
-    endpoint = "https://api.groq.com/openai/v1/chat/completions";
-    targetModel = model.replace(":free", "");
+  const isVisionModel = Boolean(modelEntry.supportsVision);
 
-    // Robust model translation to active Groq models (prevents "model does not exist" errors)
-    if (targetModel.includes("vision")) {
-      targetModel = "llama-3.2-11b-vision-preview";
-    } else if (targetModel.includes("120b") || targetModel.includes("r1") || targetModel.includes("70b")) {
-      targetModel = "openai/gpt-oss-120b";
-    } else if (targetModel.includes("20b")) {
-      targetModel = "openai/gpt-oss-20b";
-    } else if (targetModel.includes("allam")) {
-      targetModel = "allam-2-7b";
-    } else if (targetModel.includes("qwen")) {
-      targetModel = "qwen/qwen3.8-27b";
-    } else {
-      targetModel = "qwen/qwen3.8-27b";
-    }
-  } else if (finalApiKey.startsWith("sk-or-")) {
-    endpoint = "https://openrouter.ai/api/v1/chat/completions";
-    upstreamHeaders["HTTP-Referer"] = "https://rorogpt.vercel.app";
-    upstreamHeaders["X-Title"] = "RoroGPT Free Chat";
-    targetModel = model.endsWith(":free") ? model : `${model}:free`;
-  }
-
-  // Determine if target model supports multimodal vision
-  const isVisionModel = targetModel.includes("vision") || targetModel.startsWith("gemini-");
-
-  // Format system prompt and active skill instructions
-  const { skillPrompt = "" } = body || {};
+  // 6. Format System Prompt and Active Skill Instructions
   let effectiveSystemPrompt = (systemPrompt || "").trim();
   if (skillPrompt && typeof skillPrompt === "string" && skillPrompt.trim()) {
     effectiveSystemPrompt = effectiveSystemPrompt
@@ -130,13 +186,11 @@ export default async function handler(req, res) {
 
     if (Array.isArray(msg.content)) {
       if (isVisionModel) {
-        // Model supports multimodal vision array directly
         formattedMessages.push({
           role: msg.role,
           content: msg.content
         });
       } else {
-        // Fallback for text-only models: extract text blocks and note image attachments
         const textParts = [];
         let hasImage = false;
         for (const part of msg.content) {
@@ -147,7 +201,7 @@ export default async function handler(req, res) {
           }
         }
         if (hasImage) {
-          textParts.push("\n[Note: An image was attached, but the active model is text-only. Please switch to Gemini 2.0 Flash or Llama 3.2 Vision in the top bar to inspect images.]");
+          textParts.push("\n[Note: An image was attached, but the active model is text-only. Please switch to Gemini 2.0 Flash or Llama 3.2 Vision to inspect images.]");
         }
         formattedMessages.push({
           role: msg.role,
@@ -170,12 +224,11 @@ export default async function handler(req, res) {
     stream: true
   };
 
-  // Upstream connection management with early abort on client disconnect
   const abortController = new AbortController();
   req.on("close", () => abortController.abort());
 
   try {
-    const upstreamRes = await fetch(endpoint, {
+    const upstreamRes = await fetch(providerConfig.endpoint, {
       method: "POST",
       headers: upstreamHeaders,
       body: JSON.stringify(payload),
@@ -188,13 +241,23 @@ export default async function handler(req, res) {
         const errorJson = await upstreamRes.json();
         if (errorJson?.error?.message) {
           errorMsg = errorJson.error.message;
+        } else if (errorJson?.error) {
+          errorMsg = typeof errorJson.error === "string" ? errorJson.error : JSON.stringify(errorJson.error);
         }
       } catch {
         errorMsg = await upstreamRes.text();
       }
 
-      if (errorMsg.includes("Insufficient credits") || errorMsg.includes("never purchased credits")) {
-        errorMsg = "OpenRouter requires accounts to purchase credits. Use RoroGPT 100% FREE with ZERO payment by grabbing a free key from Groq (https://console.groq.com/keys - no card needed) or Google AI Studio (https://aistudio.google.com/apikey) and pasting it in Settings ⚙️!";
+      // Explicit detection for payment/quota issues — Never route to paid services
+      const lowerErr = errorMsg.toLowerCase();
+      if (
+        upstreamRes.status === 402 ||
+        lowerErr.includes("insufficient credit") ||
+        lowerErr.includes("purchased credit") ||
+        lowerErr.includes("billing") ||
+        lowerErr.includes("payment required")
+      ) {
+        errorMsg = `The selected model '${modelEntry.name}' is unavailable under the current ${providerConfig.name} free tier access. RoroGPT operates strictly on free-tier access and never routes to paid services. Please check your provider quota or switch to another free model or Local Ollama.`;
       }
 
       return res.status(upstreamRes.status).json({
@@ -203,7 +266,6 @@ export default async function handler(req, res) {
       });
     }
 
-    // Set streaming headers for instant real-time response
     res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
@@ -246,7 +308,8 @@ export default async function handler(req, res) {
               const clientPayload = JSON.stringify({
                 content,
                 reasoning,
-                model: parsed.model || targetModel
+                model: parsed.model || targetModel,
+                provider: resolvedProvider
               });
               res.write(`data: ${clientPayload}\n\n`);
             }
