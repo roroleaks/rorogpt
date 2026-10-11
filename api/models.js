@@ -108,19 +108,6 @@ export const FREE_MODELS_BY_PROVIDER = {
       supportsVision: false,
       description: "Multilingual instruction model with Arabic & English fluency. Available on Groq's developer free tier where eligible.",
       infoUrl: "https://console.groq.com/keys"
-    },
-    {
-      id: "llama-3.2-11b-vision-preview",
-      name: "Llama 3.2 11B Vision (Groq)",
-      provider: "groq",
-      speed: "👁️ Vision (~0.3s)",
-      badge: "Vision AI",
-      color: "#ec4899",
-      icon: "🖼️",
-      context: "128K",
-      supportsVision: true,
-      description: "Meta's multimodal vision model for inspecting images and charts. Available on Groq's developer free tier where eligible.",
-      infoUrl: "https://console.groq.com/keys"
     }
   ],
   gemini: [

@@ -3980,7 +3980,10 @@ function initEvents() {
 
   // Settings Save
   DOM.saveSettingsBtn.addEventListener("click", () => {
-    state.apiKey = DOM.apiKeyInput.value.trim();
+    if (DOM.apiKeyInput) {
+      state.apiKey = DOM.apiKeyInput.value.trim();
+      localStorage.setItem("roro_api_key", state.apiKey);
+    }
     if (DOM.appTokenInput) {
       state.appToken = DOM.appTokenInput.value.trim();
       localStorage.setItem("roro_app_token", state.appToken);
@@ -3988,7 +3991,6 @@ function initEvents() {
     state.systemPrompt = DOM.systemPromptInput.value.trim();
     state.temperature = parseFloat(DOM.temperatureSlider.value);
 
-    localStorage.setItem("roro_api_key", state.apiKey);
     localStorage.setItem("roro_system_prompt", state.systemPrompt);
     localStorage.setItem("roro_temperature", state.temperature);
 
@@ -3997,12 +3999,14 @@ function initEvents() {
     showToast("Settings saved successfully!", "success");
   });
 
-  // API Key visibility toggle
-  DOM.toggleApiKeyVisibility.addEventListener("click", () => {
-    const isPass = DOM.apiKeyInput.type === "password";
-    DOM.apiKeyInput.type = isPass ? "text" : "password";
-    DOM.toggleApiKeyVisibility.textContent = isPass ? "🔒" : "👁️";
-  });
+  // API Key visibility toggle (if present)
+  if (DOM.toggleApiKeyVisibility && DOM.apiKeyInput) {
+    DOM.toggleApiKeyVisibility.addEventListener("click", () => {
+      const isPass = DOM.apiKeyInput.type === "password";
+      DOM.apiKeyInput.type = isPass ? "text" : "password";
+      DOM.toggleApiKeyVisibility.textContent = isPass ? "🔒" : "👁️";
+    });
+  }
 
   // App Token visibility toggle
   if (DOM.toggleAppTokenVisibility && DOM.appTokenInput) {
@@ -4374,7 +4378,7 @@ function initEvents() {
 
 function openSettingsModal() {
   if (typeof closeMobileSidebar === "function") closeMobileSidebar();
-  DOM.apiKeyInput.value = state.apiKey;
+  if (DOM.apiKeyInput) DOM.apiKeyInput.value = state.apiKey;
   if (DOM.appTokenInput) DOM.appTokenInput.value = state.appToken || "";
   DOM.systemPromptInput.value = state.systemPrompt;
   DOM.temperatureSlider.value = state.temperature;

@@ -4074,12 +4074,8 @@ async function runTests() {
     // 17.11 Settings, Models & Library Modal Action Buttons on Mobile
     const toggleApiKeyVisibility = win17.document.getElementById("toggleApiKeyVisibility");
     const apiKeyInput = win17.document.getElementById("apiKeyInput");
-    assert(toggleApiKeyVisibility !== null, "Settings: toggleApiKeyVisibility button exists");
-    assert(apiKeyInput.type === "password", "Settings: apiKeyInput starts as password type");
-    toggleApiKeyVisibility.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
-    assert(apiKeyInput.type === "text", "Settings: toggleApiKeyVisibility toggles password to text");
-    toggleApiKeyVisibility.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
-    assert(apiKeyInput.type === "password", "Settings: toggleApiKeyVisibility toggles text back to password");
+    assert(apiKeyInput === null, "Settings: Client apiKeyInput removed from Settings dialog (desktop & mobile)");
+    assert(toggleApiKeyVisibility === null, "Settings: toggleApiKeyVisibility button removed from Settings dialog");
 
     const toggleAppTokenVisibility = win17.document.getElementById("toggleAppTokenVisibility");
     const appTokenInput = win17.document.getElementById("appTokenInput");
@@ -4099,10 +4095,10 @@ async function runTests() {
 
     const saveSettingsBtn = win17.document.getElementById("saveSettingsBtn");
     assert(saveSettingsBtn !== null, "Settings: saveSettingsBtn exists");
-    apiKeyInput.value = "gsk_testmobilekey123";
+    win17.document.getElementById("systemPromptInput").value = "Custom Persona";
     saveSettingsBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
-    assert(win17.state.apiKey === "gsk_testmobilekey123", "Settings: saveSettingsBtn saves API key into state");
-    assert(win17.localStorage.getItem("roro_api_key") === "gsk_testmobilekey123", "Settings: saveSettingsBtn persists API key in localStorage");
+    assert(win17.state.systemPrompt === "Custom Persona", "Settings: saveSettingsBtn saves system prompt into state");
+    assert(win17.localStorage.getItem("roro_system_prompt") === "Custom Persona", "Settings: saveSettingsBtn persists system prompt in localStorage");
 
     const filterPills = win17.document.querySelectorAll(".filter-pill");
     assert(filterPills.length >= 4, "Library: Filter pill buttons exist");
