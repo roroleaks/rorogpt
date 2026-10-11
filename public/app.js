@@ -765,7 +765,7 @@ function updateApiKeyBadge(hasServerKey) {
   } else {
     dot.className = "status-dot";
     text.textContent = "No Free Key Set";
-    DOM.apiKeyStatusBadge.title = "Click Settings to paste your free Groq, Gemini, or Cerebras key, or use Local Ollama";
+    DOM.apiKeyStatusBadge.title = "Server AI models configured via .env or use Local Ollama";
   }
 }
 
