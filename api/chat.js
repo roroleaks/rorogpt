@@ -117,7 +117,7 @@ export default async function handler(req, res) {
     resolvedProvider = modelEntry.provider;
   }
 
-  const providerConfig = PROVIDER_CONFIGS[resolvedProvider];
+  let providerConfig = PROVIDER_CONFIGS[resolvedProvider];
   if (!providerConfig) {
     return res.status(400).json({
       error: `Configuration for provider '${resolvedProvider}' is not available.`
@@ -149,9 +149,19 @@ export default async function handler(req, res) {
     }
 
     if (!finalApiKey) {
-      return res.status(401).json({
-        error: `No server API key found for ${providerConfig.name}. Please configure ${providerConfig.envKeyName} in .env on the server (${providerConfig.keyUrl}) or select an active Groq model (e.g. Qwen 3.8 27B, GPT OSS 120B) or Local Ollama.`
-      });
+      // Graceful cloud provider fallback: if server has GROQ_API_KEY configured, fallback to Groq to keep responses working seamlessly
+      const fallbackGroqKey = (process.env.GROQ_API_KEY || "").trim();
+      if (fallbackGroqKey && resolvedProvider !== "groq") {
+        console.warn(`[RoroGPT API] No API key found for ${providerConfig.name}; gracefully falling back to Groq.`);
+        resolvedProvider = "groq";
+        modelEntry = getModelById("qwen/qwen3.8-27b");
+        providerConfig = PROVIDER_CONFIGS["groq"];
+        finalApiKey = fallbackGroqKey;
+      } else {
+        return res.status(401).json({
+          error: `No server API key found for ${providerConfig.name}. Please configure ${providerConfig.envKeyName} in .env on the server (${providerConfig.keyUrl}) or select an active Groq model (e.g. Qwen 3.8 27B, GPT OSS 120B) or Local Ollama.`
+        });
+      }
     }
   }
 

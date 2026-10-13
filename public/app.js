@@ -2847,7 +2847,13 @@ async function migrateLegacyChats() {
 
     // 1. Normalize conversation-level model metadata (Current turn default selection)
     const defaultChatModel = typeof DEFAULT_CHAT_MODEL !== "undefined" ? DEFAULT_CHAT_MODEL : "qwen/qwen3.8-27b";
-    if (!chat.model || typeof chat.model !== "string" || chat.model.includes(":free")) {
+    const hasUserKey = Boolean((localStorage.getItem("roro_api_key") || "").trim());
+    if (
+      !chat.model ||
+      typeof chat.model !== "string" ||
+      chat.model.includes(":free") ||
+      ((chat.model.startsWith("gemini-") || chat.model.startsWith("cerebras/")) && !hasUserKey)
+    ) {
       chat.model = defaultChatModel;
       chat.provider = inferProvider(defaultChatModel);
       modified = true;
@@ -2989,6 +2995,15 @@ function loadChat(chatId) {
   } catch {}
 
   const chat = state.chats[chatId];
+  const hasUserKey = Boolean(state.apiKey || (localStorage.getItem("roro_api_key") || "").trim());
+  if (
+    chat.model &&
+    ((chat.model.startsWith("gemini-") || chat.model.startsWith("cerebras/")) && !hasUserKey)
+  ) {
+    chat.model = DEFAULT_CHAT_MODEL;
+    chat.provider = inferProvider(DEFAULT_CHAT_MODEL);
+    saveChatsToStorage();
+  }
   if (chat.model && isAllowedModel(chat.model)) {
     state.activeModel = chat.model;
     state.activeProvider = chat.provider || inferProvider(chat.model);
