@@ -170,7 +170,7 @@ export default async function handler(req, res) {
   }
 
   // 5. Target Model and Upstream Headers
-  const targetModel = resolvedProvider === "ollama"
+  let targetModel = resolvedProvider === "ollama"
     ? modelEntry.id.replace(/^ollama\//, "")
     : resolvedProvider === "cerebras"
     ? modelEntry.id.replace(/^cerebras\//, "")
@@ -250,12 +250,62 @@ export default async function handler(req, res) {
 
   try {
     const fetchFn = chatFetchAdapter || globalThis.fetch;
-    const upstreamRes = await fetchFn(providerConfig.endpoint, {
-      method: "POST",
-      headers: upstreamHeaders,
-      body: JSON.stringify(payload),
-      signal: abortController.signal
-    });
+    let upstreamRes;
+    try {
+      upstreamRes = await fetchFn(providerConfig.endpoint, {
+        method: "POST",
+        headers: upstreamHeaders,
+        body: JSON.stringify(payload),
+        signal: abortController.signal
+      });
+
+      // If local Ollama returned an error (e.g. 404 model not pulled), trigger fallback if Groq key is available
+      if (!upstreamRes.ok && resolvedProvider === "ollama") {
+        const fallbackGroqKey = (process.env.GROQ_API_KEY || "").trim();
+        if (fallbackGroqKey) {
+          console.warn(`[RoroGPT API] Local Ollama returned status ${upstreamRes.status}; falling back to Groq reasoning model.`);
+          resolvedProvider = "groq";
+          const isReasoning = targetModel.includes("r1") || targetModel.includes("deepseek");
+          const fallbackModelId = isReasoning ? "openai/gpt-oss-120b" : "qwen/qwen3.8-27b";
+          modelEntry = getModelById(fallbackModelId);
+          providerConfig = PROVIDER_CONFIGS["groq"];
+          finalApiKey = fallbackGroqKey;
+          targetModel = fallbackModelId;
+          upstreamHeaders["Authorization"] = `Bearer ${finalApiKey}`;
+          payload.model = targetModel;
+
+          upstreamRes = await fetchFn(providerConfig.endpoint, {
+            method: "POST",
+            headers: upstreamHeaders,
+            body: JSON.stringify(payload),
+            signal: abortController.signal
+          });
+        }
+      }
+    } catch (connectErr) {
+      const fallbackGroqKey = (process.env.GROQ_API_KEY || "").trim();
+      if (resolvedProvider === "ollama" && fallbackGroqKey) {
+        console.warn(`[RoroGPT API] Local Ollama not reachable (${connectErr.message}); falling back to Groq reasoning model.`);
+        resolvedProvider = "groq";
+        const isReasoning = targetModel.includes("r1") || targetModel.includes("deepseek");
+        const fallbackModelId = isReasoning ? "openai/gpt-oss-120b" : "qwen/qwen3.8-27b";
+        modelEntry = getModelById(fallbackModelId);
+        providerConfig = PROVIDER_CONFIGS["groq"];
+        finalApiKey = fallbackGroqKey;
+        targetModel = fallbackModelId;
+        upstreamHeaders["Authorization"] = `Bearer ${finalApiKey}`;
+        payload.model = targetModel;
+
+        upstreamRes = await fetchFn(providerConfig.endpoint, {
+          method: "POST",
+          headers: upstreamHeaders,
+          body: JSON.stringify(payload),
+          signal: abortController.signal
+        });
+      } else {
+        throw connectErr;
+      }
+    }
 
     if (!upstreamRes.ok) {
       let errorMsg = `Provider error (${upstreamRes.status})`;
