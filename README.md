@@ -1,4 +1,4 @@
-# 🌈 RoroGPT
+# RoroGPT
 
 > **A vibrant, colorful, and 100% free AI chat web application powered by ultra-fast free models (Groq LPUs, Google Gemini, Cerebras, and Local Ollama). Designed for seamless deployment on Vercel with local PC chat storage.**
 
