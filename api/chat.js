@@ -150,7 +150,7 @@ export default async function handler(req, res) {
 
     if (!finalApiKey) {
       return res.status(401).json({
-        error: `No API key found for ${providerConfig.name}. Please enter your free ${providerConfig.name} key in Settings ⚙️ (${providerConfig.keyUrl}) or select Local Ollama to chat with zero keys.`
+        error: `No server API key found for ${providerConfig.name}. Please configure ${providerConfig.envKeyName} in .env on the server (${providerConfig.keyUrl}) or select an active Groq model (e.g. Qwen 3.8 27B, GPT OSS 120B) or Local Ollama.`
       });
     }
   }
