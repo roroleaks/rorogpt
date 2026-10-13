@@ -258,7 +258,7 @@ export function getDefaultModel() {
     const found = ALL_MODELS.find(m => m.id === envDefault);
     if (found) return found.id;
   }
-  return "gemini-2.0-flash";
+  return "qwen/qwen3.8-27b";
 }
 
 export default async function handler(req, res) {

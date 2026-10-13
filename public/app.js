@@ -9,13 +9,20 @@ const DEFAULT_EMBEDDING_MODEL = "free-fast-vector";
 
 
 let initialModel = localStorage.getItem("roro_active_model");
-if (!initialModel || initialModel.includes(":free") || initialModel.includes("openrouter") || initialModel.includes("meta-llama/")) {
+const savedApiKey = (localStorage.getItem("roro_api_key") || "").trim();
+if (
+  !initialModel ||
+  initialModel.includes(":free") ||
+  initialModel.includes("openrouter") ||
+  initialModel.includes("meta-llama/") ||
+  ((initialModel.startsWith("gemini-") || initialModel.startsWith("cerebras/")) && !savedApiKey)
+) {
   initialModel = DEFAULT_CHAT_MODEL;
   localStorage.setItem("roro_active_model", DEFAULT_CHAT_MODEL);
 }
 
 let initialProvider = localStorage.getItem("roro_active_provider") || inferProvider(initialModel);
-if (initialProvider === "openrouter" || initialProvider === "local") {
+if (initialProvider === "openrouter" || initialProvider === "local" || (!savedApiKey && (initialProvider === "gemini" || initialProvider === "cerebras"))) {
   initialProvider = inferProvider(initialModel);
   localStorage.setItem("roro_active_provider", initialProvider);
 }
@@ -661,6 +668,13 @@ async function fetchModels() {
     const data = await res.json();
     if (data.success && Array.isArray(data.models)) {
       state.models = data.models;
+      if (
+        state.activeModel &&
+        (state.activeModel.startsWith("gemini-") || state.activeModel.startsWith("cerebras/")) &&
+        !state.apiKey
+      ) {
+        selectModel(data.defaultModel || DEFAULT_CHAT_MODEL);
+      }
     }
     updateApiKeyBadge(data.hasServerKey);
   } catch {
@@ -3701,6 +3715,10 @@ async function sendMessage() {
     } else {
       botMsg.content = `⚠️ **Error:** ${err.message}`;
       showToast(err.message, "error");
+      if (err.message && err.message.includes("No server API key found")) {
+        selectModel(DEFAULT_CHAT_MODEL);
+        showToast("Auto-switched to working Groq model (Qwen 3.8 27B) — please resend.", "info");
+      }
     }
     bubbleText.innerHTML = renderMarkdown(botMsg.content);
   } finally {
