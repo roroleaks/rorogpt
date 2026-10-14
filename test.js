@@ -4107,6 +4107,92 @@ async function runTests() {
     docsPill.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
     assert(win17.state.activeLibFilter === "document", "Library: Clicking filter pill updates activeLibFilter state");
 
+    // 17.12 Mobile 14 Controls & Modal Tabs Audit
+    console.log("--- 17.12 Comprehensive Audit: 14 Mobile Buttons & Modal Tabs ---");
+    // Verify CSS for responsive tabs & pills
+    assert(cssContent.includes(".modal-tabs") && cssContent.includes("overflow-x: auto !important"), "Mobile Tabs: modal-tabs supports smooth horizontal touch scroll");
+    assert(cssContent.includes(".modal-tab-bar") && cssContent.includes("overflow-x: auto !important"), "Mobile Tabs: modal-tab-bar supports smooth horizontal touch scroll");
+    assert(cssContent.includes(".library-filter-pills") && cssContent.includes("overflow-x: auto !important"), "Mobile Tabs: library-filter-pills supports smooth horizontal touch scroll");
+    assert(cssContent.includes(".tab-btn") && cssContent.includes("min-height: 40px !important"), "Mobile Tabs: tab-btn has 40px minimum touch height");
+    assert(cssContent.includes(".filter-pill") && cssContent.includes("min-height: 38px !important"), "Mobile Tabs: filter-pill has 38px minimum touch height");
+
+    // Test Model Studio Tabs switching
+    const tabChatModelsBtn = win17.document.querySelector('.tab-btn[data-tab="tabChatModels"]');
+    const tabEmbedModelsBtn = win17.document.querySelector('.tab-btn[data-tab="tabEmbeddingModels"]');
+    const tabEmbedTesterBtn = win17.document.querySelector('.tab-btn[data-tab="tabEmbedTester"]');
+    assert(tabChatModelsBtn !== null && tabEmbedModelsBtn !== null && tabEmbedTesterBtn !== null, "Studio Tabs: 3 model studio tabs exist");
+
+    tabEmbedModelsBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(tabEmbedModelsBtn.classList.contains("active"), "Studio Tabs: tabEmbeddingModels activates on tap");
+    assert(win17.document.getElementById("tabEmbeddingModels").classList.contains("active"), "Studio Tabs: tabEmbeddingModels pane shown");
+
+    tabEmbedTesterBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(tabEmbedTesterBtn.classList.contains("active"), "Studio Tabs: tabEmbedTester activates on tap");
+    assert(win17.document.getElementById("tabEmbedTester").classList.contains("active"), "Studio Tabs: tabEmbedTester pane shown");
+
+    tabChatModelsBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(tabChatModelsBtn.classList.contains("active"), "Studio Tabs: tabChatModels re-activates on tap");
+
+    // Test Skills Modal Tabs switching
+    const tabSavedSkills = win17.document.getElementById("tabSavedSkills");
+    const tabNewSkill = win17.document.getElementById("tabNewSkill");
+    assert(tabSavedSkills !== null && tabNewSkill !== null, "Skills Tabs: Saved Skills and Create/Import tabs exist");
+
+    tabNewSkill.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(tabNewSkill.classList.contains("active"), "Skills Tabs: tabNewSkill activates on tap");
+    assert(win17.document.getElementById("contentNewSkill").style.display === "block", "Skills Tabs: contentNewSkill displayed");
+
+    tabSavedSkills.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(tabSavedSkills.classList.contains("active"), "Skills Tabs: tabSavedSkills re-activates on tap");
+    assert(win17.document.getElementById("contentSavedSkills").style.display === "block", "Skills Tabs: contentSavedSkills displayed");
+
+    // Test Library Filter Pills switching (all 5 tabs)
+    const libFilterPills = win17.document.querySelectorAll("#libraryFilterPills .filter-pill");
+    assert(libFilterPills.length === 5, "Library Tabs: Exactly 5 filter tabs/pills exist (All, Docs, Photos, Skills, Links)");
+    const filterTypes = ["all", "document", "image", "skill", "weblink"];
+    for (const fType of filterTypes) {
+      const pill = Array.from(libFilterPills).find(p => p.getAttribute("data-filter") === fType);
+      assert(pill !== null, `Library Tabs: Filter pill for ${fType} exists`);
+      pill.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+      assert(win17.state.activeLibFilter === fType, `Library Tabs: Tapping ${fType} updates activeLibFilter to ${fType}`);
+      assert(pill.classList.contains("active"), `Library Tabs: ${fType} pill marked active`);
+    }
+
+    // Test Mutual Exclusion between Popups on Mobile
+    modelPillBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(modelPillContainer.classList.contains("open"), "Dropdowns: Model dropdown opens");
+    themePickerBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(themeDropdownContainer.classList.contains("open"), "Dropdowns: Theme dropdown opens");
+    assert(!modelPillContainer.classList.contains("open"), "Dropdowns: Opening theme closes model dropdown");
+    attachMenuBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(attachMenuContainer.classList.contains("open"), "Dropdowns: Attach menu opens");
+    assert(!themeDropdownContainer.classList.contains("open"), "Dropdowns: Opening attach menu closes theme dropdown");
+
+    // Test Pointerdown outside dismiss on touchscreens
+    win17.document.body.dispatchEvent(new win17.MouseEvent("pointerdown", { bubbles: true }));
+    assert(!attachMenuContainer.classList.contains("open"), "Dropdowns: Pointerdown outside closes attach menu");
+
+    themePickerBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(themeDropdownContainer.classList.contains("open"), "Dropdowns: Theme dropdown re-opened");
+    win17.document.body.dispatchEvent(new win17.MouseEvent("pointerdown", { bubbles: true }));
+    assert(!themeDropdownContainer.classList.contains("open"), "Dropdowns: Pointerdown outside closes theme dropdown");
+
+    modelPillBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(modelPillContainer.classList.contains("open"), "Dropdowns: Model dropdown re-opened");
+    win17.document.body.dispatchEvent(new win17.MouseEvent("pointerdown", { bubbles: true }));
+    assert(!modelPillContainer.classList.contains("open"), "Dropdowns: Pointerdown outside closes model dropdown");
+
+    // Test Mobile Sidebar Re-open Safety
+    const sidebarEl = win17.document.getElementById("sidebar");
+    win17.openMobileSidebar();
+    assert(sidebarEl.classList.contains("open") && !sidebarEl.classList.contains("hidden"), "Mobile Sidebar: openMobileSidebar opens without hidden class");
+    closeSidebarBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(!sidebarEl.classList.contains("open"), "Mobile Sidebar: closeSidebarBtn closes sidebar");
+    assert(!sidebarEl.classList.contains("hidden"), "Mobile Sidebar: closeSidebarBtn on mobile does not add hidden class");
+    menuToggleBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(sidebarEl.classList.contains("open"), "Mobile Sidebar: menuToggleBtn cleanly re-opens sidebar");
+    win17.closeMobileSidebar();
+
   } catch (err) {
     assert(false, `Test Suite 17 failed with error: ${err.message}\n${err.stack}`);
   }

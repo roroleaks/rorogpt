@@ -3048,6 +3048,7 @@ function closeMobileSidebar() {
 
 function openMobileSidebar() {
   if (DOM.sidebar) {
+    DOM.sidebar.classList.remove("hidden");
     DOM.sidebar.classList.add("open");
   }
   const sidebarBackdrop = document.getElementById("sidebarBackdrop");
@@ -3892,7 +3893,9 @@ function initEvents() {
   });
   DOM.closeSidebarBtn.addEventListener("click", () => {
     closeMobileSidebar();
-    DOM.sidebar.classList.add("hidden");
+    if (window.innerWidth > 768) {
+      DOM.sidebar.classList.add("hidden");
+    }
   });
   if (sidebarBackdrop) {
     sidebarBackdrop.addEventListener("click", () => {
@@ -3913,28 +3916,46 @@ function initEvents() {
   // Model pill dropdown toggle
   DOM.modelPillBtn.addEventListener("click", (e) => {
     e.stopPropagation();
+    if (DOM.themeDropdownContainer) {
+      DOM.themeDropdownContainer.classList.remove("open");
+      DOM.themePickerBtn.setAttribute("aria-expanded", "false");
+    }
+    if (typeof closeAttachMenu === "function") closeAttachMenu();
     DOM.modelPillContainer.classList.toggle("open");
     DOM.modelPillBtn.setAttribute("aria-expanded", DOM.modelPillContainer.classList.contains("open") ? "true" : "false");
   });
   DOM.inputModelChip.addEventListener("click", (e) => {
     e.stopPropagation();
-    DOM.modelPillContainer.classList.add("open");
-    DOM.modelPillBtn.setAttribute("aria-expanded", "true");
-  });
-  document.addEventListener("click", (e) => {
-    if (!DOM.modelPillContainer.contains(e.target)) {
-      DOM.modelPillContainer.classList.remove("open");
-      DOM.modelPillBtn.setAttribute("aria-expanded", "false");
-    }
-    if (!DOM.themeDropdownContainer.contains(e.target)) {
+    if (DOM.themeDropdownContainer) {
       DOM.themeDropdownContainer.classList.remove("open");
       DOM.themePickerBtn.setAttribute("aria-expanded", "false");
     }
+    if (typeof closeAttachMenu === "function") closeAttachMenu();
+    DOM.modelPillContainer.classList.add("open");
+    DOM.modelPillBtn.setAttribute("aria-expanded", "true");
   });
+
+  const handleOutsidePillsAndThemes = (e) => {
+    if (DOM.modelPillContainer && !DOM.modelPillContainer.contains(e.target)) {
+      DOM.modelPillContainer.classList.remove("open");
+      DOM.modelPillBtn.setAttribute("aria-expanded", "false");
+    }
+    if (DOM.themeDropdownContainer && !DOM.themeDropdownContainer.contains(e.target)) {
+      DOM.themeDropdownContainer.classList.remove("open");
+      DOM.themePickerBtn.setAttribute("aria-expanded", "false");
+    }
+  };
+  document.addEventListener("click", handleOutsidePillsAndThemes);
+  document.addEventListener("pointerdown", handleOutsidePillsAndThemes);
 
   // Theme dropdown toggle
   DOM.themePickerBtn.addEventListener("click", (e) => {
     e.stopPropagation();
+    if (DOM.modelPillContainer) {
+      DOM.modelPillContainer.classList.remove("open");
+      DOM.modelPillBtn.setAttribute("aria-expanded", "false");
+    }
+    if (typeof closeAttachMenu === "function") closeAttachMenu();
     DOM.themeDropdownContainer.classList.toggle("open");
     DOM.themePickerBtn.setAttribute("aria-expanded", DOM.themeDropdownContainer.classList.contains("open") ? "true" : "false");
   });
@@ -4461,8 +4482,14 @@ function exportConversation() {
   a.href = url;
   const safeExportTitle = (current.title || "conversation").replace(/[^a-z0-9_\-]/gi, "_").toLowerCase().slice(0, 36);
   a.download = `${safeExportTitle}_export.md`;
-  a.click();
-  URL.revokeObjectURL(url);
+  if (document.body) {
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } else {
+    a.click();
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
   showToast("Conversation exported as Markdown", "success");
 }
 
@@ -4507,8 +4534,14 @@ function exportConversationJSON() {
   a.href = url;
   const safeExportTitle = (current.title || "conversation").replace(/[^a-z0-9_\-]/gi, "_").toLowerCase().slice(0, 36);
   a.download = `${safeExportTitle}_export.json`;
-  a.click();
-  URL.revokeObjectURL(url);
+  if (document.body) {
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } else {
+    a.click();
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
   showToast("Conversation exported as JSON", "success");
 }
 
