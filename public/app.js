@@ -9,7 +9,11 @@ const DEFAULT_EMBEDDING_MODEL = "free-fast-vector";
 
 
 let initialModel = localStorage.getItem("roro_active_model");
-const savedApiKey = (localStorage.getItem("roro_api_key") || "").trim();
+let savedApiKey = (localStorage.getItem("roro_api_key") || "").trim();
+if (savedApiKey && !savedApiKey.startsWith("gsk_") && !savedApiKey.startsWith("AIza") && !savedApiKey.startsWith("csk-")) {
+  localStorage.removeItem("roro_api_key");
+  savedApiKey = "";
+}
 if (
   !initialModel ||
   initialModel.includes(":free") ||
@@ -3630,7 +3634,7 @@ async function sendMessage() {
         systemPrompt: state.systemPrompt,
         skillPrompt: state.activeSkill ? state.activeSkill.instructions : "",
         temperature: state.temperature,
-        apiKey: state.apiKey,
+        apiKey: (state.apiKey && (state.apiKey.startsWith("gsk_") || state.apiKey.startsWith("AIza") || state.apiKey.startsWith("csk-"))) ? state.apiKey : "",
         appToken: state.appToken
       }),
       signal: state.abortController.signal
@@ -3731,7 +3735,20 @@ async function sendMessage() {
     } else {
       botMsg.content = `⚠️ **Error:** ${err.message}`;
       showToast(err.message, "error");
-      if (err.message && err.message.includes("No server API key found")) {
+      const lower = (err.message || "").toLowerCase();
+      if (
+        lower.includes("no server api key found") ||
+        lower.includes("invalid api key") ||
+        lower.includes("invalid_api_key") ||
+        lower.includes("unauthorized") ||
+        lower.includes("api key not valid")
+      ) {
+        if (state.apiKey) {
+          state.apiKey = "";
+          localStorage.removeItem("roro_api_key");
+          if (typeof updateApiKeyBadge === "function") updateApiKeyBadge(false);
+          showToast("Stale/invalid API key cleared from browser storage.", "info");
+        }
         selectModel(DEFAULT_CHAT_MODEL);
         showToast("Auto-switched to working Groq model (Qwen 3.8 27B) — please resend.", "info");
       }

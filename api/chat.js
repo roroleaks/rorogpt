@@ -139,7 +139,18 @@ export default async function handler(req, res) {
           error: `The provided API key does not match provider '${resolvedProvider}'. Please provide a valid key for ${providerConfig.name}.`
         });
       }
-      finalApiKey = rawApiKey;
+
+      const expectedPrefix = providerConfig.keyPrefix;
+      const isValidFormat = expectedPrefix ? (rawApiKey.startsWith(expectedPrefix) && rawApiKey.length >= 15) : true;
+      const envKey = (process.env[providerConfig.envKeyName] || "").trim();
+
+      if (isValidFormat) {
+        finalApiKey = rawApiKey;
+      } else if (envKey) {
+        finalApiKey = envKey;
+      } else {
+        finalApiKey = rawApiKey;
+      }
     } else {
       // Use strictly the server-configured environment variable for this specific provider
       const envKey = (process.env[providerConfig.envKeyName] || "").trim();
@@ -329,22 +340,50 @@ export default async function handler(req, res) {
         errorMsg = `Provider error (${upstreamRes.status})`;
       }
 
-      // Explicit detection for payment/quota issues — Never route to paid services
       const lowerErr = errorMsg.toLowerCase();
-      if (
-        upstreamRes.status === 402 ||
-        lowerErr.includes("insufficient credit") ||
-        lowerErr.includes("purchased credit") ||
-        lowerErr.includes("billing") ||
-        lowerErr.includes("payment required")
-      ) {
-        errorMsg = `The selected model '${modelEntry.name}' is unavailable under the current ${providerConfig.name} free tier access. RoroGPT operates strictly on free-tier access and never routes to paid services. Please check your provider quota or switch to another free model or Local Ollama.`;
+      const isAuthError = upstreamRes.status === 401 || lowerErr.includes("invalid api key") || lowerErr.includes("invalid_api_key") || lowerErr.includes("unauthorized") || lowerErr.includes("api key not valid");
+      const fallbackGroqKey = (process.env.GROQ_API_KEY || "").trim();
+
+      // Gracefully fall back to server's verified Groq key if client key or current provider key is invalid
+      if (isAuthError && fallbackGroqKey && (finalApiKey !== fallbackGroqKey || resolvedProvider !== "groq")) {
+        console.warn(`[RoroGPT API] Upstream authentication failed for ${resolvedProvider} (${errorMsg}); gracefully falling back to server Groq key.`);
+        resolvedProvider = "groq";
+        targetModel = "qwen/qwen3.8-27b";
+        modelEntry = getModelById(targetModel);
+        providerConfig = PROVIDER_CONFIGS["groq"];
+        finalApiKey = fallbackGroqKey;
+        upstreamHeaders["Authorization"] = `Bearer ${finalApiKey}`;
+        payload.model = targetModel;
+
+        const retryRes = await fetchFn(providerConfig.endpoint, {
+          method: "POST",
+          headers: upstreamHeaders,
+          body: JSON.stringify(payload),
+          signal: abortController.signal
+        });
+
+        if (retryRes.ok) {
+          upstreamRes = retryRes;
+        }
       }
 
-      return res.status(upstreamRes.status).json({
-        error: errorMsg,
-        status: upstreamRes.status
-      });
+      if (!upstreamRes.ok) {
+        // Explicit detection for payment/quota issues — Never route to paid services
+        if (
+          upstreamRes.status === 402 ||
+          lowerErr.includes("insufficient credit") ||
+          lowerErr.includes("purchased credit") ||
+          lowerErr.includes("billing") ||
+          lowerErr.includes("payment required")
+        ) {
+          errorMsg = `The selected model '${modelEntry.name}' is unavailable under the current ${providerConfig.name} free tier access. RoroGPT operates strictly on free-tier access and never routes to paid services. Please check your provider quota or switch to another free model or Local Ollama.`;
+        }
+
+        return res.status(upstreamRes.status).json({
+          error: errorMsg,
+          status: upstreamRes.status
+        });
+      }
     }
 
     res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
