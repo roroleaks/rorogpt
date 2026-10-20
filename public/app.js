@@ -1716,11 +1716,18 @@ function renderAttachmentsTray() {
         thumb.className = "chip-thumbnail";
         thumb.src = rawSrc;
         thumb.alt = att.name || "Attachment";
+        thumb.style.cursor = "pointer";
+        thumb.title = `Click to preview ${att.name || "Photo"}`;
+        thumb.addEventListener("click", () => {
+          showImagePreviewInModal(rawSrc, att.name || "Photo", att);
+        });
         chip.appendChild(thumb);
       } else if (att.blobId) {
         const thumb = document.createElement("img");
         thumb.className = "chip-thumbnail loading-thumb";
         thumb.alt = att.name || "Attachment";
+        thumb.style.cursor = "pointer";
+        thumb.title = `Click to preview ${att.name || "Photo"}`;
         chip.appendChild(thumb);
         getAttachmentBlob(att.blobId).then(rec => {
           if (rec && rec.blob) {
@@ -1728,6 +1735,9 @@ function renderAttachmentsTray() {
             if (url) {
               thumb.src = url;
               thumb.classList.remove("loading-thumb");
+              thumb.addEventListener("click", () => {
+                showImagePreviewInModal(url, att.name || "Photo", att);
+              });
             }
           }
         }).catch(() => {});
@@ -2964,34 +2974,45 @@ function attachLibraryItemToChat(item) {
   showToast(`Attached "${item.name}" from Library!`, "success");
 }
 
+function showImagePreviewInModal(imageSrc, title = "Photo", itemToAttach = null) {
+  const container = document.createElement("div");
+  container.className = "image-preview-modal-container";
+  container.style.cssText = "width:100%; max-width:100%; display:flex; justify-content:center; align-items:center; overflow:hidden; min-width:0; box-sizing:border-box; padding:4px;";
+
+  const img = document.createElement("img");
+  img.src = imageSrc;
+  img.alt = title || "Preview Image";
+  img.className = "image-preview-modal-img";
+  img.style.cssText = "max-width:100%; max-height:min(65vh, 480px); width:auto; height:auto; object-fit:contain; border-radius:8px; display:block; margin:0 auto; box-shadow:0 4px 18px rgba(0,0,0,0.3);";
+
+  container.appendChild(img);
+  openPreviewModal("🖼️ Photo", title || "Photo", container, itemToAttach);
+}
+
 function previewLibraryItem(item) {
   let contentNode;
   if (item.type === "image") {
     const rawSrc = (item.previewUrl || item.base64Data || "").trim();
     if (rawSrc && isSafeUrl(rawSrc, true)) {
-      const container = document.createElement("div");
-      container.style.textAlign = "center";
-      const img = document.createElement("img");
-      img.src = rawSrc;
-      img.alt = item.name || "Preview Image";
-      img.style.cssText = "max-width:100%; max-height:480px; border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,0.3);";
-      container.appendChild(img);
-      contentNode = container;
+      showImagePreviewInModal(rawSrc, item.name || "Preview Image", item);
+      return;
     } else if (item.blobId) {
       const container = document.createElement("div");
-      container.style.textAlign = "center";
+      container.className = "image-preview-modal-container";
+      container.style.cssText = "width:100%; max-width:100%; display:flex; justify-content:center; align-items:center; overflow:hidden; min-width:0; box-sizing:border-box; padding:4px;";
       const img = document.createElement("img");
-      img.className = "loading-thumb";
+      img.className = "image-preview-modal-img loading-thumb";
       img.alt = item.name || "Preview Image";
-      img.style.cssText = "max-width:100%; max-height:480px; border-radius:8px;";
+      img.style.cssText = "max-width:100%; max-height:min(65vh, 480px); width:auto; height:auto; object-fit:contain; border-radius:8px; display:block; margin:0 auto;";
       container.appendChild(img);
-      contentNode = container;
+      openPreviewModal("🖼️ Photo", item.name || "Preview Image", container, item);
       getAttachmentBlob(item.blobId).then(rec => {
         if (rec && rec.blob) {
           const url = getObjectUrlForBlob(item.blobId, rec.blob);
           if (url) {
             img.src = url;
             img.classList.remove("loading-thumb");
+            img.style.boxShadow = "0 4px 18px rgba(0,0,0,0.3)";
             return;
           }
         }
@@ -3007,6 +3028,7 @@ function previewLibraryItem(item) {
         p.textContent = "⚠️ Attachment unavailable (image not found in local storage).";
         container.appendChild(p);
       });
+      return;
     } else {
       const p = document.createElement("p");
       p.className = "empty-hint";
@@ -3031,6 +3053,10 @@ function previewLibraryItem(item) {
 function openPreviewModal(icon, title, bodyContent, itemToAttach = null) {
   DOM.previewModalIcon.textContent = icon;
   DOM.previewModalTitle.textContent = title;
+  if (DOM.previewModalBody) {
+    DOM.previewModalBody.scrollTop = 0;
+    DOM.previewModalBody.scrollLeft = 0;
+  }
   if (bodyContent instanceof Node) {
     DOM.previewModalBody.replaceChildren(bodyContent);
   } else if (typeof bodyContent === "string") {
@@ -3599,13 +3625,7 @@ function appendMessageElement(msg, index) {
           img.title = att.name || "Attachment";
           img.setAttribute("data-preview", "true");
           img.addEventListener("click", () => {
-            const previewDiv = document.createElement("div");
-            previewDiv.style.textAlign = "center";
-            const pImg = document.createElement("img");
-            pImg.src = rawSrc;
-            pImg.style.cssText = "max-width:100%; border-radius:8px;";
-            previewDiv.appendChild(pImg);
-            openPreviewModal("🖼️ Photo", att.name || "Photo", previewDiv);
+            showImagePreviewInModal(rawSrc, att.name || "Photo", att);
           });
           attachContainer.appendChild(img);
         } else if (att.blobId) {
@@ -3623,13 +3643,7 @@ function appendMessageElement(msg, index) {
                 img.classList.remove("loading-thumb");
                 img.setAttribute("data-preview", "true");
                 img.addEventListener("click", () => {
-                  const previewDiv = document.createElement("div");
-                  previewDiv.style.textAlign = "center";
-                  const pImg = document.createElement("img");
-                  pImg.src = url;
-                  pImg.style.cssText = "max-width:100%; border-radius:8px;";
-                  previewDiv.appendChild(pImg);
-                  openPreviewModal("🖼️ Photo", att.name || "Photo", previewDiv);
+                  showImagePreviewInModal(url, att.name || "Photo", att);
                 });
                 return;
               }
@@ -4990,4 +5004,6 @@ if (typeof window !== "undefined") {
   window.closeCameraModal = closeCameraModal;
   window.captureCameraPhoto = captureCameraPhoto;
   window.retakeCameraPhoto = retakeCameraPhoto;
+  window.showImagePreviewInModal = showImagePreviewInModal;
+  window.openPreviewModal = openPreviewModal;
 }

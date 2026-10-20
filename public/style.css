@@ -239,6 +239,10 @@
   padding: 0;
 }
 
+img, video, canvas, svg {
+  max-width: 100%;
+}
+
 body {
   font-family: var(--font-main);
   background: var(--bg-app);
@@ -1222,6 +1226,8 @@ body {
   max-width: calc(100% - 50px);
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .message-row.user .message-bubble-wrapper {
@@ -1235,6 +1241,8 @@ body {
   line-height: 1.65;
   word-break: break-word;
   position: relative;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 /* User Bubble: Vibrant gradient */
@@ -1665,6 +1673,8 @@ code:not(pre code) {
   border-radius: var(--radius-lg);
   width: 100%;
   max-width: 540px;
+  min-width: 0;
+  box-sizing: border-box;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
   display: flex;
   flex-direction: column;
@@ -1673,7 +1683,7 @@ code:not(pre code) {
 }
 
 .modal-dialog.modal-lg {
-  max-width: 760px;
+  max-width: min(92vw, 760px);
 }
 
 .modal-header {
@@ -1714,9 +1724,13 @@ code:not(pre code) {
 .modal-body {
   padding: 20px;
   overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   gap: 18px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .form-group {
@@ -3142,12 +3156,44 @@ input[type="range"] {
 }
 
 .preview-body {
-  max-height: 520px;
+  max-height: min(70vh, 520px);
   overflow-y: auto;
+  overflow-x: hidden;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   font-size: 0.88rem;
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* Image preview containment in modal dialogs */
+.image-preview-modal-container {
+  width: 100%;
+  max-width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 4px;
+}
+
+.preview-body img,
+.modal-dialog img,
+.modal-body img,
+.image-preview-modal-img {
+  max-width: 100% !important;
+  max-height: min(65vh, 480px) !important;
+  width: auto !important;
+  height: auto !important;
+  object-fit: contain !important;
+  display: block;
+  margin: 0 auto;
+  border-radius: var(--radius-md);
+  box-sizing: border-box;
 }
 
 /* User Message Attachments in History */
@@ -3156,17 +3202,30 @@ input[type="range"] {
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 8px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.message-bubble img,
+.msg-attachments-container img {
+  max-width: 100% !important;
+  height: auto !important;
+  box-sizing: border-box;
 }
 
 .msg-attached-img {
-  max-width: 220px;
-  max-height: 160px;
+  max-width: min(100%, 220px) !important;
+  max-height: 160px !important;
+  width: auto;
+  height: auto;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
-  object-fit: cover;
+  object-fit: cover !important;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
   cursor: pointer;
   transition: transform 0.15s ease;
+  box-sizing: border-box;
 }
 
 .msg-attached-img:hover {
@@ -3789,6 +3848,28 @@ body.modal-open {
     -webkit-overflow-scrolling: touch;
     flex: 1 1 auto;
     max-height: calc(min(90dvh, 90vh) - 120px);
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .preview-body {
+    max-height: min(60dvh, 60vh);
+    min-width: 0;
+    box-sizing: border-box;
+    overflow-x: hidden;
+  }
+
+  .preview-body img,
+  .modal-dialog img,
+  .modal-body img,
+  .image-preview-modal-img {
+    max-height: min(55vh, 340px) !important;
+    max-width: 100% !important;
+  }
+
+  .msg-attached-img {
+    max-width: min(100%, 180px) !important;
+    max-height: 130px !important;
   }
 
   .modal-footer {

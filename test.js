@@ -4427,8 +4427,90 @@ async function runTests() {
 
     delete win17.state.chats.chat_oversized_test;
 
+    // TEST SUITE 19: Dialog Box Image Resizing & Modal Containment Audit
+    console.log("\n--- 19. Dialog Box Image Resizing & Modal Containment Audit ---");
+    const cssPath = path.join(__dirname, "public", "style.css");
+    const cssText = fs.readFileSync(cssPath, "utf8");
+
+    // CSS Rule Assertions
+    assert(cssText.includes("img, video, canvas, svg") && cssText.includes("max-width: 100%"), "Dialog Resizing CSS: Global reset enforces max-width: 100% on images and media");
+    assert(cssText.includes(".preview-body img") && cssText.includes("object-fit: contain !important"), "Dialog Resizing CSS: Preview body images enforce object-fit: contain !important");
+    assert(cssText.includes(".image-preview-modal-img") && cssText.includes("max-height: min(65vh, 480px) !important"), "Dialog Resizing CSS: Modal preview images enforce max-height constraint");
+    assert(cssText.includes(".image-preview-modal-container") && cssText.includes("overflow: hidden"), "Dialog Resizing CSS: Image preview modal container enforces overflow: hidden");
+    assert(cssText.includes(".message-bubble img") && cssText.includes("max-width: 100% !important"), "Dialog Resizing CSS: Chat message bubble images enforce max-width: 100% !important");
+    assert(cssText.includes(".modal-dialog.modal-lg") && cssText.includes("max-width: min(92vw, 760px)"), "Dialog Resizing CSS: Large modal dialog constrained to min(92vw, 760px)");
+    assert(cssText.includes(".modal-body") && cssText.includes("overflow-x: hidden"), "Dialog Resizing CSS: Modal body prevents horizontal overflow with overflow-x: hidden");
+    assert(cssText.includes(".preview-body") && cssText.includes("overflow-x: hidden"), "Dialog Resizing CSS: Preview body prevents horizontal blowout with overflow-x: hidden");
+    assert(cssText.includes(".preview-body img") && cssText.includes("max-height: min(55vh, 340px) !important"), "Dialog Resizing CSS: Mobile media query enforces responsive image height limit");
+
+    // JS Functionality Assertions
+    assert(typeof win17.showImagePreviewInModal === "function", "Dialog Resizing JS: showImagePreviewInModal function is exported on window");
+
+    // Test showImagePreviewInModal constructs responsive image preview node
+    const testSampleUrl = "data:image/jpeg;base64,/9j/4AAQSkZJRg==";
+    win17.showImagePreviewInModal(testSampleUrl, "Sample Photo");
+
+    const modalBackdrop = win17.document.getElementById("itemPreviewModal");
+    assert(modalBackdrop && modalBackdrop.classList.contains("open"), "Dialog Resizing JS: Preview modal opened with .open class");
+
+    const previewBody = win17.document.getElementById("previewModalBody");
+    assert(previewBody !== null, "Dialog Resizing JS: previewModalBody exists");
+    assert(previewBody.scrollTop === 0 && previewBody.scrollLeft === 0, "Dialog Resizing JS: Scroll position reset on preview open");
+
+    const previewContainer = previewBody.querySelector(".image-preview-modal-container");
+    assert(previewContainer !== null, "Dialog Resizing JS: Container with .image-preview-modal-container created");
+
+    const previewImg = previewBody.querySelector(".image-preview-modal-img");
+    assert(previewImg !== null, "Dialog Resizing JS: Image with .image-preview-modal-img created");
+    assert(previewImg.src.startsWith("data:image/jpeg"), "Dialog Resizing JS: Preview image src populated");
+    assert(previewImg.style.maxWidth === "100%", "Dialog Resizing JS: Preview image inline max-width is 100%");
+    assert(previewImg.style.objectFit === "contain", "Dialog Resizing JS: Preview image inline object-fit is contain");
+    assert(previewImg.style.maxHeight.includes("480px"), "Dialog Resizing JS: Preview image inline max-height is constrained");
+
+    // Close preview modal for cleanup
+    modalBackdrop.classList.remove("open");
+
+    // Test Library Image preview uses showImagePreviewInModal
+    const sampleLibItem = {
+      id: "lib_img_test",
+      type: "image",
+      name: "vacation.jpg",
+      previewUrl: testSampleUrl,
+      size: 50000
+    };
+    win17.previewLibraryItem(sampleLibItem);
+    assert(modalBackdrop.classList.contains("open"), "Dialog Resizing JS: previewLibraryItem opens itemPreviewModal");
+    const libImg = previewBody.querySelector(".image-preview-modal-img");
+    assert(libImg !== null && libImg.style.objectFit === "contain", "Dialog Resizing JS: previewLibraryItem constructs properly contained image");
+
+    modalBackdrop.classList.remove("open");
+
+    // Test Composer Tray thumbnail click triggers showImagePreviewInModal
+    win17.state.attachments = [
+      {
+        id: "att_tray_test",
+        type: "image",
+        name: "sunset.jpg",
+        previewUrl: testSampleUrl,
+        size: 1024,
+        meta: "1 KB (800x600)"
+      }
+    ];
+    win17.renderAttachmentsTray();
+    const trayThumb = win17.document.querySelector("#attachmentsTray .chip-thumbnail");
+    assert(trayThumb !== null, "Dialog Resizing JS: Tray thumbnail element created");
+    assert(trayThumb.style.cursor === "pointer", "Dialog Resizing JS: Tray thumbnail has pointer cursor");
+    trayThumb.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(modalBackdrop.classList.contains("open"), "Dialog Resizing JS: Clicking tray thumbnail opens preview modal");
+    const trayImg = previewBody.querySelector(".image-preview-modal-img");
+    assert(trayImg !== null && trayImg.alt === "sunset.jpg", "Dialog Resizing JS: Tray click previews correct image");
+
+    modalBackdrop.classList.remove("open");
+    win17.state.attachments = [];
+    win17.renderAttachmentsTray();
+
   } catch (err) {
-    assert(false, `Test Suite 17 or 18 failed with error: ${err.message}\n${err.stack}`);
+    assert(false, `Test Suite 19 failed with error: ${err.message}\n${err.stack}`);
   }
 
   // Restore global fetch & cleanup server
