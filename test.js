@@ -55,6 +55,8 @@ async function runTests() {
     "public/index.html",
     "public/style.css",
     "public/app.js",
+    "public/manifest.json",
+    "public/apple-touch-icon.png",
     "public/purify.min.js",
     "public/logo.jpg",
     "public/creator.jpg",
@@ -80,6 +82,14 @@ async function runTests() {
 
   const creatorStat = fs.statSync(path.join(__dirname, "public/creator.jpg"));
   assert(creatorStat.size > 10000, `Creator photo creator.jpg is present and valid (${creatorStat.size} bytes)`);
+
+  const appleTouchStat = fs.statSync(path.join(__dirname, "public/apple-touch-icon.png"));
+  assert(appleTouchStat.size > 10000, `Apple touch icon is present and valid (${appleTouchStat.size} bytes)`);
+
+  const manifestContent = JSON.parse(fs.readFileSync(path.join(__dirname, "public/manifest.json"), "utf8"));
+  assert(manifestContent.name && manifestContent.name.includes("RoroGPT"), "Manifest contains app name RoroGPT");
+  assert(manifestContent.display === "standalone", "Manifest display mode is standalone for PWA/home screen");
+  assert(Array.isArray(manifestContent.icons) && manifestContent.icons.length >= 2, "Manifest defines home screen app icons");
 
   // Static Syntax Validation: public/app.js and server files pass node syntax check
   const filesToSyntaxCheck = [
@@ -136,6 +146,10 @@ async function runTests() {
   assert(htmlContent.includes('data-theme="clean-light"'), "Clean Daylight light theme is the default on start");
   assert(htmlContent.includes("emerald-matrix"), "Vibrant dark theme 'Emerald Matrix' is present in menu");
   assert(htmlContent.includes("sidebarBackdrop"), "Mobile sidebar backdrop overlay is present");
+  assert(htmlContent.includes('rel="apple-touch-icon"'), "Apple touch icon link exists in index.html for iOS home screen");
+  assert(htmlContent.includes('rel="manifest"'), "Web app manifest link exists in index.html for mobile/desktop PWA");
+  assert(htmlContent.includes('property="og:image"'), "OpenGraph image tag exists in index.html for URL sharing previews");
+  assert(htmlContent.includes('name="twitter:image"'), "Twitter Card image tag exists in index.html for URL sharing previews");
 
   // TEST SUITE 3: HTTP Server & Strict Free Models Validation
   console.log("\n--- 3. HTTP Server & Strict Free Models Verification ---");
@@ -2873,6 +2887,14 @@ async function runTests() {
     const jpgRes = await fetch(`${baseUrl}/logo.jpg`);
     assert(jpgRes.status === 200, "Fix 9: Native Server - GET /logo.jpg returns HTTP 200");
     assert((jpgRes.headers.get("content-type") || "").includes("image/jpeg"), "Fix 9: Native Server - /logo.jpg has Content-Type image/jpeg");
+
+    const manifestRes = await fetch(`${baseUrl}/manifest.json`);
+    assert(manifestRes.status === 200, "Fix 9: Native Server - GET /manifest.json returns HTTP 200");
+    assert((manifestRes.headers.get("content-type") || "").includes("json"), "Fix 9: Native Server - /manifest.json has Content-Type application/json");
+
+    const appleIconRes = await fetch(`${baseUrl}/apple-touch-icon.png`);
+    assert(appleIconRes.status === 200, "Fix 9: Native Server - GET /apple-touch-icon.png returns HTTP 200");
+    assert((appleIconRes.headers.get("content-type") || "").includes("image/png"), "Fix 9: Native Server - /apple-touch-icon.png has Content-Type image/png");
 
     // 15.1.3 Unknown static paths return documented fallback or 404 behavior
     const missingAssetRes = await fetch(`${baseUrl}/nonexistent-asset-file-1234.png`);
