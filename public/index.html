@@ -666,7 +666,24 @@
           <video id="cameraVideo" autoplay playsinline muted></video>
           <canvas id="cameraCanvas" style="display: none;"></canvas>
           <img id="cameraSnapshotPreview" style="display: none;" alt="Captured preview">
-          <div class="camera-error-banner" id="cameraErrorBanner" style="display: none;"></div>
+          <div class="camera-error-banner" id="cameraErrorBanner" style="display: none;">
+            <div class="camera-error-icon">
+              <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+            </div>
+            <p class="camera-error-text" id="cameraErrorText">No camera was detected on this device. You can upload a photo instead.</p>
+            <button type="button" class="btn btn-primary camera-fallback-btn" id="cameraFallbackUploadBtn">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                <polyline points="21 15 16 10 5 21"></polyline>
+              </svg>
+              <span>Upload photos instead</span>
+            </button>
+          </div>
         </div>
       </div>
 

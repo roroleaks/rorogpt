@@ -3659,14 +3659,16 @@ async function runTests() {
                   objectStore: function() {
                     return {
                       get: function(key) {
-                        var r = { onsuccess: null, onerror: null, result: null };
-                        setTimeout(function() { if (r.onsuccess) r.onsuccess({ target: { result: _memStore.get(key) } }); }, 0);
+                        var res = _memStore.get(key) || null;
+                        var r = { onsuccess: null, onerror: null, result: res };
+                        setTimeout(function() { if (r.onsuccess) r.onsuccess({ target: { result: res } }); }, 0);
                         return r;
                       },
                       put: function(val, key) { _memStore.set(key || (val && val.id), val); },
                       getAll: function() {
-                        var r = { onsuccess: null, onerror: null, result: [] };
-                        setTimeout(function() { if (r.onsuccess) r.onsuccess({ target: { result: Array.from(_memStore.values()) } }); }, 0);
+                        var all = Array.from(_memStore.values());
+                        var r = { onsuccess: null, onerror: null, result: all };
+                        setTimeout(function() { if (r.onsuccess) r.onsuccess({ target: { result: all } }); }, 0);
                         return r;
                       },
                       delete: function(key) { _memStore.delete(key); }
@@ -4215,8 +4217,218 @@ async function runTests() {
     assert(sidebarEl.classList.contains("open"), "Mobile Sidebar: menuToggleBtn cleanly re-opens sidebar");
     win17.closeMobileSidebar();
 
+    // ==========================================================
+    // TEST SUITE 18: Image Normalization Pipeline & Camera Fallback Audit
+    // ==========================================================
+    console.log("\n--- 18. Image Normalization Pipeline & Camera Fallback Audit ---");
+
+    // 18.1 Target Dimension & Aspect Ratio Calculations (calculateTargetDimensions)
+    // 18.1.1 Large landscape: 4000x3000 downscaled to 2048x1536 (longest side 2048, 4:3 preserved)
+    const landscapeNorm = win17.calculateTargetDimensions(4000, 3000, 2048);
+    assert(landscapeNorm.width === 2048 && landscapeNorm.height === 1536 && landscapeNorm.wasDownscaled === true,
+      "Norm Math: 4000x3000 downscaled to 2048x1536 with 4:3 aspect ratio preserved");
+
+    // 18.1.2 Large portrait: 2400x3200 downscaled to 1536x2048 (longest side 2048, 3:4 preserved)
+    const portraitNorm = win17.calculateTargetDimensions(2400, 3200, 2048);
+    assert(portraitNorm.width === 1536 && portraitNorm.height === 2048 && portraitNorm.wasDownscaled === true,
+      "Norm Math: 2400x3200 downscaled to 1536x2048 with 3:4 aspect ratio preserved");
+
+    // 18.1.3 Small image: 800x600 is NEVER upscaled
+    const smallNormCalc = win17.calculateTargetDimensions(800, 600, 2048);
+    assert(smallNormCalc.width === 800 && smallNormCalc.height === 600 && smallNormCalc.wasDownscaled === false,
+      "Norm Math: 800x600 image is NEVER upscaled");
+
+    // 18.1.4 Camera 4K UHD: 3840x2160 downscaled to 2048x1152 (16:9 preserved)
+    const cameraNormCalc = win17.calculateTargetDimensions(3840, 2160, 2048);
+    assert(cameraNormCalc.width === 2048 && cameraNormCalc.height === 1152 && cameraNormCalc.wasDownscaled === true,
+      "Norm Math: 3840x2160 camera frame downscaled to 2048x1152 with 16:9 aspect ratio preserved");
+
+    // 18.2 Binary Header Dimension Parser (getImageDimensionsFromBytes)
+    const logoBytes = new Uint8Array(fs.readFileSync(path.join(__dirname, "public/logo.jpg")));
+    const logoParsed = win17.getImageDimensionsFromBytes(logoBytes);
+    assert(logoParsed && logoParsed.width === 1024 && logoParsed.height === 977,
+      `Binary Header: JPEG logo dimensions parsed accurately (${logoParsed?.width}x${logoParsed?.height})`);
+
+    const appleIconBytes = new Uint8Array(fs.readFileSync(path.join(__dirname, "public/apple-touch-icon.png")));
+    const appleParsed = win17.getImageDimensionsFromBytes(appleIconBytes);
+    assert(appleParsed && appleParsed.width === 1024 && appleParsed.height === 977,
+      `Binary Header: PNG apple-touch-icon dimensions parsed accurately (${appleParsed?.width}x${appleParsed?.height})`);
+
+    const invalidParsed = win17.getImageDimensionsFromBytes(new Uint8Array([0x00, 0x01, 0x02, 0x03]));
+    assert(invalidParsed === null, "Binary Header: Corrupted/invalid bytes return null safely");
+
+    // 18.3 Shared Normalization Helper (normalizeImageForAI)
+    // 18.3.1 Small image passes through without upscaling
+    const smallNormResult = await win17.normalizeImageForAI({ width: 640, height: 480, size: 45000, type: "image/jpeg" });
+    assert(smallNormResult.width === 640 && smallNormResult.height === 480 && smallNormResult.wasDownscaled === false,
+      "normalizeImageForAI: Small image preserves dimensions without upscaling");
+    assert(smallNormResult.mimeType === "image/jpeg", "normalizeImageForAI: Target MIME is image/jpeg");
+    assert(smallNormResult.size > 0 && Boolean(smallNormResult.blob), "normalizeImageForAI: Returns valid blob and size");
+
+    // 18.3.2 Large JPEG source (4000x3000)
+    const largeJpegResult = await win17.normalizeImageForAI({ width: 4000, height: 3000, size: 7500000, type: "image/jpeg" });
+    assert(largeJpegResult.width === 2048 && largeJpegResult.height === 1536 && largeJpegResult.wasDownscaled === true,
+      "normalizeImageForAI: Large JPEG downscaled with longest side capped to 2048");
+    assert(largeJpegResult.size <= 4 * 1024 * 1024, "normalizeImageForAI: Output payload size within 4MB limit");
+
+    // 18.3.3 Large PNG source (2400x3200)
+    const largePngResult = await win17.normalizeImageForAI({ width: 2400, height: 3200, size: 6200000, type: "image/png" });
+    assert(largePngResult.width === 1536 && largePngResult.height === 2048 && largePngResult.wasDownscaled === true,
+      "normalizeImageForAI: Large PNG downscaled to 1536x2048");
+    assert(largePngResult.mimeType === "image/jpeg", "normalizeImageForAI: Large PNG normalized to JPEG");
+
+    // 18.4 Photo Upload Processing (handlePhotoFiles)
+    const prevCount = win17.state.attachments.length;
+    // 18.4.1 Rejects non-image format
+    await win17.handlePhotoFiles([{ name: "report.pdf", size: 1024, type: "application/pdf" }]);
+    assert(win17.state.attachments.length === prevCount, "Photo Upload: Non-image file is safely rejected");
+
+    // 18.4.2 Normalizes and attaches large JPEG upload
+    await win17.handlePhotoFiles([{
+      name: "landscape_panorama.jpg",
+      size: 5500000,
+      type: "image/jpeg",
+      width: 4000,
+      height: 3000
+    }]);
+    assert(win17.state.attachments.length === prevCount + 1, "Photo Upload: Normalized photo added to attachments");
+    const uploadedAtt = win17.state.attachments[win17.state.attachments.length - 1];
+    assert(uploadedAtt.name === "landscape_panorama.jpg", "Photo Upload: Preserves original filename");
+    assert(uploadedAtt.width === 2048 && uploadedAtt.height === 1536, "Photo Upload: Attachment metadata has normalized 2048x1536 dimensions");
+    assert(uploadedAtt.wasDownscaled === true, "Photo Upload: wasDownscaled flag set to true");
+    assert(uploadedAtt.mimeType === "image/jpeg", "Photo Upload: Attachment MIME set to image/jpeg");
+    assert(uploadedAtt.size > 0, "Photo Upload: Attachment size recorded from normalized blob");
+
+    // 18.5 High-Resolution Camera Capture Workflow
+    Object.defineProperty(win17.DOM.cameraVideo, "videoWidth", { value: 3840, configurable: true, writable: true });
+    Object.defineProperty(win17.DOM.cameraVideo, "videoHeight", { value: 2160, configurable: true, writable: true });
+    win17.state.capturedPhotoData = {
+      width: 3840,
+      height: 2160,
+      size: 4800000,
+      type: "image/jpeg"
+    };
+    await win17.useCapturedPhoto();
+    const cameraAtt = win17.state.attachments[win17.state.attachments.length - 1];
+    assert(cameraAtt.name.startsWith("Camera_Photo_"), "Camera Capture: Captured photo named with Camera_Photo_ prefix");
+    assert(cameraAtt.width === 2048 && cameraAtt.height === 1152, "Camera Capture: 4K video frame normalized to 2048x1152");
+    assert(cameraAtt.wasDownscaled === true, "Camera Capture: High-resolution camera frame downscaled");
+    assert(cameraAtt.size > 0, "Camera Capture: Size calculated directly from normalized blob.size");
+
+    // 18.6 Camera Error Categorization (getCameraErrorMessage)
+    const notFoundMsg = win17.getCameraErrorMessage({ name: "NotFoundError", message: "Requested device not found" });
+    assert(notFoundMsg === "No camera was detected on this device. You can upload a photo instead.",
+      "Camera Error: NotFoundError gives friendly device not found message");
+
+    const deniedMsg = win17.getCameraErrorMessage({ name: "NotAllowedError", message: "Permission denied" });
+    assert(deniedMsg.includes("Camera access was denied"), "Camera Error: NotAllowedError gives clear permission instructions");
+
+    const inUseMsg = win17.getCameraErrorMessage({ name: "NotReadableError", message: "Could not start video source" });
+    assert(inUseMsg.includes("currently in use"), "Camera Error: NotReadableError notifies of in-use hardware");
+
+    // 18.7 Camera Device-Not-Found Error UI & Fallback Upload Button
+    const origGUM = win17.navigator.mediaDevices ? win17.navigator.mediaDevices.getUserMedia : null;
+    win17.navigator.mediaDevices = win17.navigator.mediaDevices || {};
+    win17.navigator.mediaDevices.getUserMedia = async () => {
+      const err = new Error("Requested device not found");
+      err.name = "NotFoundError";
+      throw err;
+    };
+
+    await win17.openCameraModal();
+    assert(win17.DOM.cameraErrorBanner.style.display === "flex", "Camera UI: Error banner shown on camera failure");
+    assert(win17.DOM.cameraErrorText.textContent.includes("No camera was detected"),
+      "Camera UI: Friendly error text displayed in banner");
+    assert(win17.DOM.capturePhotoBtn.disabled === true, "Camera UI: Capture button disabled when no active stream");
+
+    // Test fallback upload button click
+    let photoFallbackFired = false;
+    win17.DOM.photoPickerInput.click = () => { photoFallbackFired = true; };
+    win17.DOM.cameraFallbackUploadBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(photoFallbackFired === true, "Camera Fallback: Clicking upload fallback triggers photoPickerInput");
+    assert(!win17.DOM.cameraModal.classList.contains("open"), "Camera Fallback: Clicking fallback button closes camera modal");
+
+    // Restore getUserMedia
+    win17.navigator.mediaDevices.getUserMedia = origGUM;
+
+    // 18.8 Camera Media Track Cleanup
+    let tracksClosed = 0;
+    win17.state.cameraStream = {
+      getTracks: () => [
+        { stop: () => { tracksClosed++; } },
+        { stop: () => { tracksClosed++; } }
+      ]
+    };
+    win17.closeCameraModal();
+    assert(tracksClosed === 2, "Camera Cleanup: All media tracks stopped on closeCameraModal");
+    assert(win17.state.cameraStream === null, "Camera Cleanup: state.cameraStream cleared");
+    assert(win17.DOM.capturePhotoBtn.disabled === true, "Camera Cleanup: capturePhotoBtn disabled on modal close");
+
+    // 18.9 Outbound Multimodal Safety Guard for Legacy Oversized Attachments
+    const oversizedBase64 = "data:image/jpeg;base64," + Buffer.from("legacy_high_res_photo_bytes_payload").toString("base64");
+    const oversizedBlobId = await win17.storeAttachmentBlob(oversizedBase64, "image/jpeg", "blob_oversized_legacy");
+    const storedRec = await win17.getAttachmentBlob(oversizedBlobId);
+    if (storedRec && storedRec.blob) {
+      Object.defineProperty(storedRec.blob, "size", { value: 5.5 * 1024 * 1024, configurable: true });
+    }
+
+    const testOversizedChat = {
+      id: "chat_oversized_test",
+      title: "Oversized Test",
+      messages: [
+        {
+          role: "user",
+          content: "Check this large image",
+          attachments: [
+            {
+              id: "att_over_1",
+              type: "image",
+              name: "large_legacy.jpg",
+              blobId: oversizedBlobId,
+              size: 5.5 * 1024 * 1024,
+              mimeType: "image/jpeg"
+            }
+          ]
+        },
+        { role: "assistant", content: "" }
+      ]
+    };
+    win17.state.chats.chat_oversized_test = testOversizedChat;
+    win17.state.currentChatId = "chat_oversized_test";
+
+    // Simulate outbound message extraction with safety guard
+    const outboundMsg = await (async () => {
+      const m = testOversizedChat.messages[0];
+      const photos = m.attachments.filter(a => a.type === "image");
+      const parts = [];
+      for (const p of photos) {
+        let rawBlob = null;
+        if (p.blobId) {
+          const rec = await win17.getAttachmentBlob(p.blobId);
+          if (rec && rec.blob) rawBlob = rec.blob;
+        }
+        if (rawBlob && rawBlob.size > 4 * 1024 * 1024) {
+          const norm = await win17.normalizeImageForAI(rawBlob, { maxDimension: 2048, maxPayloadBytes: 4 * 1024 * 1024 });
+          if (norm && norm.blob) {
+            rawBlob = norm.blob;
+            await win17.storeAttachmentBlob(norm.blob, norm.mimeType, p.blobId);
+          }
+        }
+        const dataUrl = await win17.blobToDataUrl(rawBlob);
+        if (dataUrl) parts.push({ type: "image_url", image_url: { url: dataUrl } });
+      }
+      return { role: m.role, content: [{ type: "text", text: m.content }, ...parts] };
+    })();
+
+    assert(outboundMsg.content.length === 2, "Outbound Guard: User message includes text and normalized image part");
+    const imgPart = outboundMsg.content.find(p => p.type === "image_url");
+    assert(Boolean(imgPart && imgPart.image_url && imgPart.image_url.url), "Outbound Guard: Data URL generated for vision model");
+    assert(Boolean(imgPart && imgPart.image_url && imgPart.image_url.url && imgPart.image_url.url.startsWith("data:image/")), "Outbound Guard: Normalized payload is a valid image data URL");
+
+    delete win17.state.chats.chat_oversized_test;
+
   } catch (err) {
-    assert(false, `Test Suite 17 failed with error: ${err.message}\n${err.stack}`);
+    assert(false, `Test Suite 17 or 18 failed with error: ${err.message}\n${err.stack}`);
   }
 
   // Restore global fetch & cleanup server

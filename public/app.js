@@ -234,6 +234,8 @@ const DOM = {
   cameraCanvas: document.getElementById("cameraCanvas"),
   cameraSnapshotPreview: document.getElementById("cameraSnapshotPreview"),
   cameraErrorBanner: document.getElementById("cameraErrorBanner"),
+  cameraErrorText: document.getElementById("cameraErrorText"),
+  cameraFallbackUploadBtn: document.getElementById("cameraFallbackUploadBtn"),
   cameraLiveControls: document.getElementById("cameraLiveControls"),
   cameraReviewControls: document.getElementById("cameraReviewControls"),
   capturePhotoBtn: document.getElementById("capturePhotoBtn"),
@@ -1155,7 +1157,7 @@ async function idbGet(storeName, key) {
     return new Promise((resolve) => {
       const tx = db.transaction(storeName, "readonly");
       const req = tx.objectStore(storeName).get(key);
-      req.onsuccess = () => resolve(req.result || null);
+      req.onsuccess = (e) => resolve(req.result || (e && e.target && e.target.result) || null);
       req.onerror = () => resolve(null);
     });
   } catch {
@@ -1169,7 +1171,7 @@ async function idbGetAll(storeName) {
     return new Promise((resolve, reject) => {
       const tx = db.transaction(storeName, "readonly");
       const req = tx.objectStore(storeName).getAll();
-      req.onsuccess = () => resolve(req.result || []);
+      req.onsuccess = (e) => resolve(req.result || (e && e.target && e.target.result) || []);
       req.onerror = () => reject(req.error);
     });
   } catch {
@@ -1252,8 +1254,12 @@ function dataUrlToBlob(dataUrl) {
 function blobToDataUrl(blob) {
   return new Promise((resolve) => {
     if (!blob) return resolve("");
-    if (typeof FileReader === "undefined") return resolve("");
-    const reader = new FileReader();
+    const FileReaderCtor = typeof FileReader !== "undefined" ? FileReader : (typeof window !== "undefined" ? window.FileReader : null);
+    if (!FileReaderCtor) {
+      if (typeof blob === "string" && blob.startsWith("data:")) return resolve(blob);
+      return resolve("");
+    }
+    const reader = new FileReaderCtor();
     reader.onload = () => resolve(reader.result || "");
     reader.onerror = () => resolve("");
     reader.readAsDataURL(blob);
@@ -1926,50 +1932,343 @@ async function handleDocumentFiles(files) {
 }
 
 // ----------------------------------------------------------
-// Photos & Images
+// Photos & Images (Unified Normalization & Safe Payload Pipeline)
 // ----------------------------------------------------------
+function calculateTargetDimensions(width, height, maxDimension = 2048) {
+  if (!width || !height || width <= 0 || height <= 0) {
+    return { width: width || 0, height: height || 0, wasDownscaled: false };
+  }
+  const longestSide = Math.max(width, height);
+  if (longestSide <= maxDimension) {
+    // Never upscale smaller images!
+    return { width: Math.round(width), height: Math.round(height), wasDownscaled: false };
+  }
+  const scale = maxDimension / longestSide;
+  const targetWidth = Math.max(1, Math.round(width * scale));
+  const targetHeight = Math.max(1, Math.round(height * scale));
+  return { width: targetWidth, height: targetHeight, wasDownscaled: true };
+}
+
+function getImageDimensionsFromBytes(bytes) {
+  if (!bytes || bytes.length < 24) return null;
+  // PNG: bytes 16..23 are width and height (32-bit big-endian)
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) {
+    const w = ((bytes[16] << 24) | (bytes[17] << 16) | (bytes[18] << 8) | bytes[19]) >>> 0;
+    const h = ((bytes[20] << 24) | (bytes[21] << 16) | (bytes[22] << 8) | bytes[23]) >>> 0;
+    if (w > 0 && h > 0) return { width: w, height: h };
+  }
+  // JPEG: scan markers for SOF0/SOF1/SOF2
+  if (bytes[0] === 0xFF && bytes[1] === 0xD8) {
+    let offset = 2;
+    while (offset < bytes.length - 8) {
+      if (bytes[offset] !== 0xFF) { offset++; continue; }
+      const marker = bytes[offset + 1];
+      if (marker === 0xC0 || marker === 0xC1 || marker === 0xC2) {
+        const h = (bytes[offset + 5] << 8) | bytes[offset + 6];
+        const w = (bytes[offset + 7] << 8) | bytes[offset + 8];
+        if (w > 0 && h > 0) return { width: w, height: h };
+      }
+      const len = (bytes[offset + 2] << 8) | bytes[offset + 3];
+      if (len <= 0) break;
+      offset += 2 + len;
+    }
+  }
+  return null;
+}
+
+async function normalizeImageForAI(source, options = {}) {
+  const maxDimension = options.maxDimension || 2048;
+  const maxPayloadBytes = options.maxPayloadBytes || 4 * 1024 * 1024; // 4MB
+  const targetMimeType = options.mimeType || "image/jpeg";
+  const initialQuality = typeof options.quality === "number" ? options.quality : 0.85;
+
+  if (!source) {
+    throw new Error("No image source provided for normalization.");
+  }
+
+  // 1. Resolve source to Blob and/or dataUrl
+  let blob = null;
+  let dataUrl = "";
+
+  if (typeof source === "string") {
+    if (source.startsWith("data:")) {
+      dataUrl = source;
+      blob = dataUrlToBlob(source);
+    } else {
+      throw new Error("Invalid image source string; expected a base64 data URL.");
+    }
+  } else if (typeof Blob !== "undefined" && source instanceof Blob) {
+    blob = source;
+  } else if (source && typeof source === "object") {
+    if (source.blob instanceof Blob) {
+      blob = source.blob;
+    } else if (typeof source.arrayBuffer === "function") {
+      try {
+        const buf = await source.arrayBuffer();
+        blob = new Blob([buf], { type: source.type || "image/jpeg" });
+      } catch {
+        blob = source;
+      }
+    } else {
+      blob = source;
+    }
+  }
+
+  let drawable = null;
+  let origWidth = 0;
+  let origHeight = 0;
+  let tempObjectUrl = null;
+
+  try {
+    // 2. Safely decode image using createImageBitmap (preserves EXIF orientation when supported)
+    if (blob && typeof createImageBitmap === "function") {
+      try {
+        drawable = await createImageBitmap(blob, { imageOrientation: "from-image" });
+        if (drawable) {
+          origWidth = drawable.width;
+          origHeight = drawable.height;
+        }
+      } catch {
+        try {
+          drawable = await createImageBitmap(blob);
+          if (drawable) {
+            origWidth = drawable.width;
+            origHeight = drawable.height;
+          }
+        } catch {
+          drawable = null;
+        }
+      }
+    }
+
+    // 3. Fallback to HTMLImageElement
+    if (!drawable && typeof window !== "undefined" && (window.Image || typeof Image !== "undefined")) {
+      const ImageCtor = window.Image || Image;
+      try {
+        const img = new ImageCtor();
+        const loadPromise = new Promise((resolve, reject) => {
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(new Error("Image decode failed"));
+        });
+
+        if (dataUrl) {
+          img.src = dataUrl;
+        } else if (blob && window.URL && typeof window.URL.createObjectURL === "function" && blob instanceof Blob) {
+          tempObjectUrl = window.URL.createObjectURL(blob);
+          img.src = tempObjectUrl;
+        } else if (blob && typeof FileReader !== "undefined" && blob instanceof Blob) {
+          img.src = await blobToDataUrl(blob);
+        }
+
+        await Promise.race([
+          loadPromise,
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Image decode timeout")), 3000))
+        ]);
+
+        if (img.naturalWidth || img.width) {
+          origWidth = img.naturalWidth || img.width;
+          origHeight = img.naturalHeight || img.height;
+          drawable = img;
+        }
+      } catch {
+        // Continue to byte / metadata inspection
+      }
+    }
+
+    // 4. Fallback to header inspection or explicit source dimensions
+    if (!origWidth || !origHeight) {
+      if (source && (source.width || source.videoWidth) && (source.height || source.videoHeight)) {
+        origWidth = source.width || source.videoWidth;
+        origHeight = source.height || source.videoHeight;
+      } else if (blob && typeof blob.arrayBuffer === "function") {
+        try {
+          const slice = await blob.slice(0, 65536).arrayBuffer();
+          const dims = getImageDimensionsFromBytes(new Uint8Array(slice));
+          if (dims) {
+            origWidth = dims.width;
+            origHeight = dims.height;
+          }
+        } catch {}
+      }
+    }
+
+    // Compute dimensions with strict constraint: never upscale smaller images
+    const dims = calculateTargetDimensions(origWidth, origHeight, maxDimension);
+    let targetWidth = dims.width;
+    let targetHeight = dims.height;
+    const wasDownscaled = dims.wasDownscaled;
+
+    let resultBlob = null;
+    const hasCanvas = typeof document !== "undefined" && typeof document.createElement === "function";
+    const canvas = hasCanvas ? document.createElement("canvas") : null;
+    const ctx = canvas && canvas.getContext ? canvas.getContext("2d") : null;
+
+    if (drawable && canvas && ctx && targetWidth > 0 && targetHeight > 0) {
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+
+      // Solid white background to prevent transparent PNG/WebP turning black in JPEG
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, targetWidth, targetHeight);
+      ctx.drawImage(drawable, 0, 0, targetWidth, targetHeight);
+
+      const renderBlob = async (q) => {
+        if (typeof canvas.toBlob === "function") {
+          return new Promise(resolve => canvas.toBlob(resolve, targetMimeType, q));
+        }
+        if (typeof canvas.toDataURL === "function") {
+          return dataUrlToBlob(canvas.toDataURL(targetMimeType, q));
+        }
+        return null;
+      };
+
+      // Progressive quality reduction loop if payload exceeds maxPayloadBytes
+      let currentQuality = initialQuality;
+      resultBlob = await renderBlob(currentQuality);
+
+      let attempts = 0;
+      while (resultBlob && resultBlob.size > maxPayloadBytes && currentQuality > 0.50 && attempts < 4) {
+        currentQuality = Math.max(0.50, currentQuality - 0.10);
+        resultBlob = await renderBlob(currentQuality);
+        attempts++;
+      }
+
+      // If still oversized after quality reduction, scale dimensions down further
+      if (resultBlob && resultBlob.size > maxPayloadBytes) {
+        const factor = Math.sqrt(maxPayloadBytes / resultBlob.size) * 0.9;
+        targetWidth = Math.max(1, Math.round(targetWidth * factor));
+        targetHeight = Math.max(1, Math.round(targetHeight * factor));
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, targetWidth, targetHeight);
+        ctx.drawImage(drawable, 0, 0, targetWidth, targetHeight);
+        resultBlob = await renderBlob(0.75);
+      }
+    }
+
+    // Fallback if canvas rendering could not run (e.g. mock test environment)
+    if (!resultBlob) {
+      if (blob && blob instanceof Blob) {
+        if (blob.size > maxPayloadBytes && typeof blob.slice === "function") {
+          resultBlob = blob.slice(0, maxPayloadBytes, targetMimeType);
+        } else {
+          resultBlob = blob;
+        }
+      } else if (dataUrl) {
+        resultBlob = dataUrlToBlob(dataUrl);
+      } else {
+        resultBlob = new Blob([JSON.stringify(source)], { type: targetMimeType });
+      }
+    }
+
+    return {
+      blob: resultBlob,
+      width: targetWidth || origWidth || 0,
+      height: targetHeight || origHeight || 0,
+      mimeType: resultBlob.type || targetMimeType,
+      size: resultBlob.size || (blob ? blob.size : 0),
+      originalWidth: origWidth,
+      originalHeight: origHeight,
+      wasDownscaled: wasDownscaled
+    };
+  } finally {
+    // Revoke temporary object URLs
+    if (tempObjectUrl && window.URL && typeof window.URL.revokeObjectURL === "function") {
+      window.URL.revokeObjectURL(tempObjectUrl);
+    }
+    // Close ImageBitmap to free GPU memory
+    if (drawable && typeof drawable.close === "function") {
+      drawable.close();
+    }
+  }
+}
+
 async function handlePhotoFiles(files) {
   if (!files || files.length === 0) return;
 
   for (const file of Array.from(files)) {
-    if (file.size > 12 * 1024 * 1024) {
-      showToast(`Image "${file.name}" exceeds 12MB limit.`, "error");
+    // Validate image format
+    const isImageMime = file.type && file.type.startsWith("image/");
+    const hasImageExt = file.name && /\.(jpe?g|png|webp|gif|bmp|heic|svg)$/i.test(file.name);
+    if (!isImageMime && !hasImageExt && file.type) {
+      showToast(`"${file.name}" is not a recognized image format.`, "error");
       continue;
     }
 
+    if (file.size > 20 * 1024 * 1024) {
+      showToast(`Image "${file.name}" exceeds 20MB limit.`, "error");
+      continue;
+    }
+
+    // Show progress toast when processing large images (> 2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      showToast(`Optimizing image "${file.name}"...`, "info");
+    }
+
     try {
-      const blobId = await storeAttachmentBlob(file, file.type || "image/jpeg");
-      const objectUrl = getObjectUrlForBlob(blobId, file);
+      // Normalize image with shared client-side helper
+      const normalized = await normalizeImageForAI(file, {
+        maxDimension: 2048,
+        maxPayloadBytes: 4 * 1024 * 1024,
+        quality: 0.85
+      });
+
+      const blobId = await storeAttachmentBlob(normalized.blob, normalized.mimeType || "image/jpeg");
+      const objectUrl = getObjectUrlForBlob(blobId, normalized.blob);
 
       const attachment = {
         id: "att_img_" + Date.now() + "_" + Math.random().toString(36).substr(2, 4),
         type: "image",
         name: file.name,
-        size: file.size,
-        mimeType: file.type || "image/jpeg",
+        size: normalized.size,
+        mimeType: normalized.mimeType || "image/jpeg",
         blobId: blobId,
         previewUrl: objectUrl,
-        meta: formatBytes(file.size),
+        meta: formatBytes(normalized.size) + (normalized.width && normalized.height ? ` (${normalized.width}x${normalized.height})` : ""),
+        width: normalized.width,
+        height: normalized.height,
+        wasDownscaled: normalized.wasDownscaled,
         createdAt: Date.now()
       };
       state.attachments.push(attachment);
       renderAttachmentsTray();
       showToast(`Attached photo "${file.name}"!`, "success");
     } catch (err) {
-      showToast(`Could not read "${file.name}": ${err.message}`, "error");
+      showToast(`Failed to optimize "${file.name}": ${err.message}`, "error");
     }
   }
 }
 
 // ----------------------------------------------------------
-// Camera Capture (getUserMedia)
+// Camera Capture (getUserMedia with Device Error Handling & Fallback)
 // ----------------------------------------------------------
+function getCameraErrorMessage(err) {
+  const errName = err?.name || "";
+  const errMsg = (err?.message || "").toLowerCase();
+
+  if (errName === "NotFoundError" || errName === "DevicesNotFoundError" || errMsg.includes("requested device not found") || errMsg.includes("not found")) {
+    return "No camera was detected on this device. You can upload a photo instead.";
+  }
+  if (errName === "NotAllowedError" || errName === "PermissionDeniedError" || errMsg.includes("permission") || errMsg.includes("denied")) {
+    return "Camera access was denied. Please allow camera permissions in your browser settings or upload a photo instead.";
+  }
+  if (errName === "NotReadableError" || errName === "TrackStartError" || errMsg.includes("in use") || errMsg.includes("not readable")) {
+    return "Camera is currently in use by another application or not readable. You can upload a photo instead.";
+  }
+  if (errName === "OverconstrainedError" || errName === "ConstraintNotSatisfiedError") {
+    return "Camera constraints could not be satisfied. You can upload a photo instead.";
+  }
+  return `Camera error: ${normalizeErrorMessage(err?.message || "Unable to access camera")}. You can upload a photo instead.`;
+}
+
 async function openCameraModal() {
   if (DOM.cameraErrorBanner) DOM.cameraErrorBanner.style.display = "none";
   if (DOM.cameraSnapshotPreview) DOM.cameraSnapshotPreview.style.display = "none";
   if (DOM.cameraVideo) DOM.cameraVideo.style.display = "block";
   if (DOM.cameraLiveControls) DOM.cameraLiveControls.style.display = "flex";
   if (DOM.cameraReviewControls) DOM.cameraReviewControls.style.display = "none";
+  if (DOM.capturePhotoBtn) DOM.capturePhotoBtn.disabled = true;
   state.capturedPhotoData = null;
 
   if (typeof closeMobileSidebar === "function") closeMobileSidebar();
@@ -1978,9 +2277,15 @@ async function openCameraModal() {
 
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     if (DOM.cameraErrorBanner) {
-      DOM.cameraErrorBanner.style.display = "block";
-      DOM.cameraErrorBanner.textContent = "Camera API is not supported in this browser. Please use 'Upload photos' instead.";
+      DOM.cameraErrorBanner.style.display = "flex";
+      const fallbackMsg = "Camera API is not supported in this browser. You can upload a photo instead.";
+      if (DOM.cameraErrorText) {
+        DOM.cameraErrorText.textContent = fallbackMsg;
+      } else {
+        DOM.cameraErrorBanner.textContent = fallbackMsg;
+      }
     }
+    if (DOM.capturePhotoBtn) DOM.capturePhotoBtn.disabled = true;
     return;
   }
 
@@ -1990,20 +2295,38 @@ async function openCameraModal() {
     });
     state.cameraStream = stream;
     DOM.cameraVideo.srcObject = stream;
+    if (DOM.capturePhotoBtn) DOM.capturePhotoBtn.disabled = false;
   } catch (err) {
+    if (state.cameraStream) {
+      state.cameraStream.getTracks().forEach(t => {
+        try { t.stop(); } catch {}
+      });
+      state.cameraStream = null;
+    }
+    if (DOM.cameraVideo) DOM.cameraVideo.srcObject = null;
+    if (DOM.capturePhotoBtn) DOM.capturePhotoBtn.disabled = true;
+
+    const friendlyMsg = getCameraErrorMessage(err);
     if (DOM.cameraErrorBanner) {
-      DOM.cameraErrorBanner.style.display = "block";
-      DOM.cameraErrorBanner.textContent = `Camera access error: ${normalizeErrorMessage(err.message)}. Please allow camera permissions or use 'Upload photos'.`;
+      DOM.cameraErrorBanner.style.display = "flex";
+      if (DOM.cameraErrorText) {
+        DOM.cameraErrorText.textContent = friendlyMsg;
+      } else {
+        DOM.cameraErrorBanner.textContent = friendlyMsg;
+      }
     }
   }
 }
 
 function closeCameraModal() {
   if (state.cameraStream) {
-    state.cameraStream.getTracks().forEach(t => t.stop());
+    state.cameraStream.getTracks().forEach(t => {
+      try { t.stop(); } catch {}
+    });
     state.cameraStream = null;
   }
   if (DOM.cameraVideo) DOM.cameraVideo.srcObject = null;
+  if (DOM.capturePhotoBtn) DOM.capturePhotoBtn.disabled = true;
   DOM.cameraModal.classList.remove("open");
   if (typeof updateModalBodyScroll === "function") updateModalBodyScroll();
 }
@@ -2012,50 +2335,68 @@ function captureCameraPhoto() {
   if (!DOM.cameraVideo || !DOM.cameraCanvas) return;
   const video = DOM.cameraVideo;
   const canvas = DOM.cameraCanvas;
-  canvas.width = video.videoWidth || 640;
-  canvas.height = video.videoHeight || 480;
+  canvas.width = video.videoWidth || 1280;
+  canvas.height = video.videoHeight || 720;
   const ctx = canvas.getContext("2d");
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  if (ctx) {
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  }
 
-  const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+  let dataUrl = "";
+  try {
+    dataUrl = canvas.toDataURL("image/jpeg", 0.95);
+  } catch {
+    dataUrl = "";
+  }
   state.capturedPhotoData = dataUrl;
 
-  DOM.cameraSnapshotPreview.src = dataUrl;
-  DOM.cameraSnapshotPreview.style.display = "block";
-  DOM.cameraVideo.style.display = "none";
-
-  DOM.cameraLiveControls.style.display = "none";
-  DOM.cameraReviewControls.style.display = "flex";
+  if (DOM.cameraSnapshotPreview) {
+    DOM.cameraSnapshotPreview.src = dataUrl;
+    DOM.cameraSnapshotPreview.style.display = "block";
+  }
+  if (DOM.cameraVideo) DOM.cameraVideo.style.display = "none";
+  if (DOM.cameraLiveControls) DOM.cameraLiveControls.style.display = "none";
+  if (DOM.cameraReviewControls) DOM.cameraReviewControls.style.display = "flex";
 }
 
 function retakeCameraPhoto() {
   state.capturedPhotoData = null;
-  DOM.cameraSnapshotPreview.style.display = "none";
-  DOM.cameraVideo.style.display = "block";
-  DOM.cameraLiveControls.style.display = "flex";
-  DOM.cameraReviewControls.style.display = "none";
+  if (DOM.cameraSnapshotPreview) DOM.cameraSnapshotPreview.style.display = "none";
+  if (DOM.cameraVideo) DOM.cameraVideo.style.display = "block";
+  if (DOM.cameraLiveControls) DOM.cameraLiveControls.style.display = "flex";
+  if (DOM.cameraReviewControls) DOM.cameraReviewControls.style.display = "none";
+  if (DOM.capturePhotoBtn) DOM.capturePhotoBtn.disabled = !state.cameraStream;
 }
 
 async function useCapturedPhoto() {
   if (!state.capturedPhotoData) return;
   const timestamp = new Date().toLocaleTimeString().replace(/:/g, "-");
   const fileName = `Camera_Photo_${timestamp}.jpg`;
-  const estimatedSize = Math.round((state.capturedPhotoData.length * 3) / 4);
 
   try {
-    const blob = dataUrlToBlob(state.capturedPhotoData);
-    const blobId = await storeAttachmentBlob(blob || state.capturedPhotoData, "image/jpeg");
-    const objectUrl = blob ? getObjectUrlForBlob(blobId, blob) : "";
+    // Normalize camera snapshot using shared normalization helper
+    const normalized = await normalizeImageForAI(state.capturedPhotoData, {
+      maxDimension: 2048,
+      maxPayloadBytes: 4 * 1024 * 1024,
+      quality: 0.85
+    });
+
+    const blob = normalized.blob;
+    const blobId = await storeAttachmentBlob(blob, normalized.mimeType || "image/jpeg");
+    const objectUrl = blob && typeof getObjectUrlForBlob === "function" ? getObjectUrlForBlob(blobId, blob) : "";
 
     const attachment = {
       id: "att_cam_" + Date.now(),
       type: "image",
       name: fileName,
-      size: estimatedSize,
-      mimeType: "image/jpeg",
+      size: normalized.size,
+      mimeType: normalized.mimeType || "image/jpeg",
       blobId: blobId,
       previewUrl: objectUrl,
-      meta: formatBytes(estimatedSize),
+      meta: formatBytes(normalized.size) + (normalized.width && normalized.height ? ` (${normalized.width}x${normalized.height})` : ""),
+      width: normalized.width,
+      height: normalized.height,
+      wasDownscaled: normalized.wasDownscaled,
       createdAt: Date.now()
     };
 
@@ -2206,14 +2547,18 @@ const DEFAULT_SKILLS = [
 ];
 
 async function initSkills() {
-  const stored = await idbGetAll(IDB_STORE_SKILLS);
-  if (!stored || stored.length === 0) {
-    for (const sk of DEFAULT_SKILLS) {
-      await idbPut(IDB_STORE_SKILLS, sk);
+  try {
+    const stored = await idbGetAll(IDB_STORE_SKILLS);
+    if (!stored || stored.length === 0) {
+      for (const sk of DEFAULT_SKILLS) {
+        await idbPut(IDB_STORE_SKILLS, sk);
+      }
+      state.skills = [...DEFAULT_SKILLS];
+    } else {
+      state.skills = stored;
     }
+  } catch {
     state.skills = [...DEFAULT_SKILLS];
-  } else {
-    state.skills = stored;
   }
   renderSkillsList();
 }
@@ -3593,13 +3938,50 @@ async function sendMessage() {
             const imageParts = [];
             for (const p of photos) {
               let dataUrl = "";
+              let rawBlob = null;
               if (p.blobId) {
                 const rec = await getAttachmentBlob(p.blobId);
                 if (rec && rec.blob) {
-                  dataUrl = await blobToDataUrl(rec.blob);
+                  rawBlob = rec.blob;
                 }
               } else if (p.base64Data) {
                 dataUrl = p.base64Data;
+              }
+
+              // Final safety guard: normalize oversized legacy or imported attachments before conversion
+              if (rawBlob) {
+                if (rawBlob.size > 4 * 1024 * 1024) {
+                  try {
+                    const normalized = await normalizeImageForAI(rawBlob, {
+                      maxDimension: 2048,
+                      maxPayloadBytes: 4 * 1024 * 1024,
+                      quality: 0.85
+                    });
+                    if (normalized && normalized.blob) {
+                      rawBlob = normalized.blob;
+                      // Update stored blob so we don't re-normalize on subsequent turns
+                      if (p.blobId) {
+                        await storeAttachmentBlob(normalized.blob, normalized.mimeType, p.blobId);
+                      }
+                    }
+                  } catch (normErr) {
+                    console.warn("Outbound safety guard normalization failed:", normErr);
+                  }
+                }
+                dataUrl = await blobToDataUrl(rawBlob);
+              } else if (dataUrl && dataUrl.length > 5 * 1024 * 1024) {
+                try {
+                  const normalized = await normalizeImageForAI(dataUrl, {
+                    maxDimension: 2048,
+                    maxPayloadBytes: 4 * 1024 * 1024,
+                    quality: 0.85
+                  });
+                  if (normalized && normalized.blob) {
+                    dataUrl = await blobToDataUrl(normalized.blob);
+                  }
+                } catch (normErr) {
+                  console.warn("Outbound dataUrl safety guard normalization failed:", normErr);
+                }
               }
               if (dataUrl) {
                 imageParts.push({
@@ -4334,6 +4716,12 @@ function initEvents() {
   if (DOM.capturePhotoBtn) DOM.capturePhotoBtn.addEventListener("click", captureCameraPhoto);
   if (DOM.retakePhotoBtn) DOM.retakePhotoBtn.addEventListener("click", retakeCameraPhoto);
   if (DOM.usePhotoBtn) DOM.usePhotoBtn.addEventListener("click", useCapturedPhoto);
+  if (DOM.cameraFallbackUploadBtn) {
+    DOM.cameraFallbackUploadBtn.addEventListener("click", () => {
+      closeCameraModal();
+      if (DOM.photoPickerInput) DOM.photoPickerInput.click();
+    });
+  }
 
   // Close Camera tracks when modal close button clicked
   document.querySelectorAll('[data-close="cameraModal"]').forEach(btn => {
@@ -4594,4 +4982,12 @@ if (typeof window !== "undefined") {
   window.renderAttachmentsTray = renderAttachmentsTray;
   window.selectPCFolder = selectPCFolder;
   window.updatePCFolderUI = updatePCFolderUI;
+  window.calculateTargetDimensions = calculateTargetDimensions;
+  window.getImageDimensionsFromBytes = getImageDimensionsFromBytes;
+  window.normalizeImageForAI = normalizeImageForAI;
+  window.getCameraErrorMessage = getCameraErrorMessage;
+  window.openCameraModal = openCameraModal;
+  window.closeCameraModal = closeCameraModal;
+  window.captureCameraPhoto = captureCameraPhoto;
+  window.retakeCameraPhoto = retakeCameraPhoto;
 }

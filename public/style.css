@@ -2735,11 +2735,43 @@ input[type="range"] {
 }
 
 .camera-error-banner {
-  padding: 16px;
+  padding: 24px 20px;
   text-align: center;
-  color: #ef4444;
-  font-size: 0.88rem;
+  color: var(--text-main);
+  font-size: 0.9rem;
   line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  max-width: 440px;
+  margin: 0 auto;
+}
+
+.camera-error-icon {
+  color: #ef4444;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.camera-error-text {
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.camera-fallback-btn {
+  margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  min-height: 40px;
+  padding: 8px 18px;
+  font-weight: 500;
 }
 
 .camera-footer {
@@ -3868,6 +3900,12 @@ body.modal-open {
   }
 
   .camera-actions-bar button {
+    min-height: 44px;
+  }
+
+  .camera-fallback-btn {
+    width: 100%;
+    justify-content: center;
     min-height: 44px;
   }
 
