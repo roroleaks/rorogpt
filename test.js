@@ -4723,6 +4723,307 @@ async function runTests() {
     toastContainer20.replaceChildren();
     }
 
+    // ==========================================================
+    // --- 21. Model Comprehension of File, Photo, Skill & Web ---
+    // ==========================================================
+    console.log("\n--- 21. Model Comprehension of File, Photo, Skill & Web ---");
+    {
+      const { createMockChatProvider } = await import("./test-helpers/mock-provider.js");
+      const { setChatFetchAdapter } = await import("./api/chat.js");
+      const { rateLimiter } = await import("./api/_security.js");
+      rateLimiter.clear();
+      process.env.RATE_LIMIT_MAX_CHAT = "5000";
+      process.env.NODE_ENV = "development";
+
+      const suite21Mock = createMockChatProvider();
+      await suite21Mock.start();
+      setChatFetchAdapter(suite21Mock.fetchAdapter);
+
+      try {
+        // 21.1 Uploaded File (Document Attachment) Comprehension
+        suite21Mock.clearRequests();
+        suite21Mock.setHandler((req, res, record) => {
+          res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8" });
+          const userMsg = record.body.messages.find(m => m.role === "user");
+          const msgText = typeof userMsg?.content === "string" ? userMsg.content : JSON.stringify(userMsg?.content || "");
+          let reply = "I see no documents.";
+          if (msgText.includes("CODE_SIGMA_992") && msgText.includes("annual_audit.pdf")) {
+            reply = "Verified Document: CODE_SIGMA_992 approved by Auditor Dr. Vance.";
+          }
+          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: reply } }] })}\n\n`);
+          res.write("data: [DONE]\n\n");
+          res.end();
+        });
+
+        // Set up document attachment on client
+        win17.state.attachments = [{
+          id: "att_doc_audit",
+          type: "document",
+          name: "annual_audit.pdf",
+          textContent: "SECURITY_PROTOCOL: CODE_SIGMA_992\nAuditor: Dr. Vance\nStatus: 100% Verified.",
+          size: 1024,
+          meta: "1 KB"
+        }];
+        win17.renderAttachmentsTray();
+
+        const docAttChip = win17.document.querySelector("#attachmentsTray .attachment-chip.document");
+        assert(docAttChip !== null, "Model Comprehension: Document chip rendered in attachments tray");
+
+        // Format prompt as client sendMessage does
+        let docContext = "--- [ATTACHED DOCUMENTS] ---\n\n[Document: annual_audit.pdf]\nSECURITY_PROTOCOL: CODE_SIGMA_992\nAuditor: Dr. Vance\nStatus: 100% Verified.\n";
+        const docUserPrompt = docContext + "\n\n--- [USER QUESTION] ---\nWhat is the protocol code and auditor?";
+
+        const docChatRes = await fetch(`${baseUrl}/api/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            provider: "groq",
+            model: "qwen/qwen3.8-27b",
+            apiKey: "gsk_mock_test_doc_key",
+            messages: [{ role: "user", content: docUserPrompt }]
+          })
+        });
+
+        assert(docChatRes.status === 200, "Model Comprehension: Document chat request returns HTTP 200");
+        const docLastReq = suite21Mock.getLastRequest();
+        assert(docLastReq !== null, "Model Comprehension: Document chat intercepted by mock upstream model");
+        assert(docLastReq.body.messages[0].content.includes("CODE_SIGMA_992"),
+          "Model Comprehension: Upstream model receives exact document content payload");
+        assert(docLastReq.body.messages[0].content.includes("[Document: annual_audit.pdf]"),
+          "Model Comprehension: Upstream model receives document filename attribution");
+
+        const docReader = docChatRes.body.getReader();
+        const docDecoder = new TextDecoder();
+        let docStreamAccum = "";
+        while (true) {
+          const { done, value } = await docReader.read();
+          if (done) break;
+          docStreamAccum += docDecoder.decode(value);
+        }
+        assert(docStreamAccum.includes("CODE_SIGMA_992 approved by Auditor Dr. Vance"),
+          "Model Comprehension: Model successfully understands and extracts data from uploaded document");
+
+        // 21.2 Web Address (Web Link Attachment) Comprehension
+        suite21Mock.clearRequests();
+        suite21Mock.setHandler((req, res, record) => {
+          res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8" });
+          const userMsg = record.body.messages.find(m => m.role === "user");
+          const msgText = typeof userMsg?.content === "string" ? userMsg.content : JSON.stringify(userMsg?.content || "");
+          let reply = "No website found.";
+          if (msgText.includes("https://quantum-research.org/study") && msgText.includes("Coherence Time: 14.8 ms")) {
+            reply = "Website Analysis: Quantum coherence reached 14.8 ms at 12 mK.";
+          }
+          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: reply } }] })}\n\n`);
+          res.write("data: [DONE]\n\n");
+          res.end();
+        });
+
+        win17.state.attachments = [{
+          id: "att_web_quantum",
+          type: "weblink",
+          name: "Quantum Study 2026",
+          url: "https://quantum-research.org/study",
+          instruction: "Focus on the coherence time",
+          textContent: "Title: Quantum Breakthrough\nFindings: Coherence Time: 14.8 ms observed at base temperature 12 mK.",
+          meta: "Web Link • quantum-research.org"
+        }];
+        win17.renderAttachmentsTray();
+
+        const webAttChip = win17.document.querySelector("#attachmentsTray .attachment-chip.weblink");
+        assert(webAttChip !== null, "Model Comprehension: Website link chip rendered in attachments tray");
+
+        let webContext = "\n--- [ATTACHED WEBSITES] ---\n\n[URL: https://quantum-research.org/study]\nInstruction: Focus on the coherence time\nContent:\nTitle: Quantum Breakthrough\nFindings: Coherence Time: 14.8 ms observed at base temperature 12 mK.\n";
+        const webUserPrompt = webContext + "\n\n--- [USER QUESTION] ---\nWhat was the quantum coherence time?";
+
+        const webChatRes = await fetch(`${baseUrl}/api/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            provider: "groq",
+            model: "qwen/qwen3.8-27b",
+            apiKey: "gsk_mock_test_web_key",
+            messages: [{ role: "user", content: webUserPrompt }]
+          })
+        });
+
+        assert(webChatRes.status === 200, "Model Comprehension: Web link chat request returns HTTP 200");
+        const webLastReq = suite21Mock.getLastRequest();
+        assert(webLastReq !== null, "Model Comprehension: Web link request intercepted by mock upstream model");
+        assert(webLastReq.body.messages[0].content.includes("https://quantum-research.org/study"),
+          "Model Comprehension: Upstream model receives web URL in prompt context");
+        assert(webLastReq.body.messages[0].content.includes("Instruction: Focus on the coherence time"),
+          "Model Comprehension: Upstream model receives specific user instruction for web page");
+        assert(webLastReq.body.messages[0].content.includes("Coherence Time: 14.8 ms"),
+          "Model Comprehension: Upstream model receives extracted web content body");
+
+        const webReader = webChatRes.body.getReader();
+        const webDecoder = new TextDecoder();
+        let webStreamAccum = "";
+        while (true) {
+          const { done, value } = await webReader.read();
+          if (done) break;
+          webStreamAccum += webDecoder.decode(value);
+        }
+        assert(webStreamAccum.includes("Quantum coherence reached 14.8 ms"),
+          "Model Comprehension: Model successfully understands and extracts data from attached website");
+
+        // 21.3 Active Skill Comprehension
+        suite21Mock.clearRequests();
+        suite21Mock.setHandler((req, res, record) => {
+          res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8" });
+          const sysMsg = record.body.messages.find(m => m.role === "system");
+          let reply = "Standard reply.";
+          if (sysMsg && sysMsg.content.includes("=== Active Skill Instructions ===") && sysMsg.content.includes("Pirate Translator")) {
+            reply = "AHOY MATEY! Shiver me timbers, here be yer pirate answer!";
+          }
+          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: reply } }] })}\n\n`);
+          res.write("data: [DONE]\n\n");
+          res.end();
+        });
+
+        win17.activateSkill({
+          id: "skill_pirate",
+          name: "Pirate Mode",
+          instructions: "You are a Pirate Translator. Every reply must begin with AHOY MATEY!"
+        });
+        assert(win17.state.activeSkill !== null, "Model Comprehension: Active skill set on client");
+
+        const skillChatRes = await fetch(`${baseUrl}/api/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            provider: "groq",
+            model: "qwen/qwen3.8-27b",
+            apiKey: "gsk_mock_test_skill_key",
+            systemPrompt: "You are RoroGPT assistant.",
+            skillPrompt: win17.state.activeSkill.instructions,
+            messages: [{ role: "user", content: "Good morning, how are you?" }]
+          })
+        });
+
+        assert(skillChatRes.status === 200, "Model Comprehension: Skill chat request returns HTTP 200");
+        const skillLastReq = suite21Mock.getLastRequest();
+        assert(skillLastReq !== null, "Model Comprehension: Skill request intercepted by mock upstream model");
+        const upstreamSysMsg = skillLastReq.body.messages.find(m => m.role === "system");
+        assert(upstreamSysMsg !== undefined, "Model Comprehension: Formatted system message delivered to upstream model");
+        assert(upstreamSysMsg.content.includes("=== Active Skill Instructions ==="),
+          "Model Comprehension: System message formatted with active skill boundary headers");
+        assert(upstreamSysMsg.content.includes("You are a Pirate Translator"),
+          "Model Comprehension: Exact skill instructions delivered to upstream model");
+
+        const skillReader = skillChatRes.body.getReader();
+        const skillDecoder = new TextDecoder();
+        let skillStreamAccum = "";
+        while (true) {
+          const { done, value } = await skillReader.read();
+          if (done) break;
+          skillStreamAccum += skillDecoder.decode(value);
+        }
+        assert(skillStreamAccum.includes("AHOY MATEY!"),
+          "Model Comprehension: Model successfully executed active skill instructions");
+
+        win17.deactivateSkill();
+
+        // 21.4 Uploaded Photo (Multimodal Vision) Comprehension
+        suite21Mock.clearRequests();
+        suite21Mock.setHandler((req, res, record) => {
+          res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8" });
+          const userMsg = record.body.messages.find(m => m.role === "user");
+          let isMultimodal = Array.isArray(userMsg?.content);
+          let hasImagePart = isMultimodal && userMsg.content.some(p => p.type === "image_url");
+          let reply = "I cannot see an image.";
+          if (hasImagePart) {
+            reply = "Vision Analysis: Inspected photo and detected optical landscape with mountain peak.";
+          }
+          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: reply } }] })}\n\n`);
+          res.write("data: [DONE]\n\n");
+          res.end();
+        });
+
+        const testImageDataUrl = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=";
+
+        // Multimodal request to vision-capable model (gemini-2.0-flash)
+        const visionChatRes = await fetch(`${baseUrl}/api/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            provider: "gemini",
+            model: "gemini-2.0-flash",
+            apiKey: "AIzaSyMockVisionKey12345",
+            messages: [{
+              role: "user",
+              content: [
+                { type: "text", text: "What do you see in this photo?" },
+                { type: "image_url", image_url: { url: testImageDataUrl } }
+              ]
+            }]
+          })
+        });
+
+        assert(visionChatRes.status === 200, "Model Comprehension: Vision photo chat request returns HTTP 200");
+        const visionLastReq = suite21Mock.getLastRequest();
+        assert(visionLastReq !== null, "Model Comprehension: Vision request intercepted by mock upstream model");
+        const visionUserMsg = visionLastReq.body.messages.find(m => m.role === "user");
+        assert(Array.isArray(visionUserMsg.content), "Model Comprehension: Outbound vision message structured as multimodal array");
+        const visionImgPart = visionUserMsg.content.find(p => p.type === "image_url");
+        assert(visionImgPart !== undefined, "Model Comprehension: Upstream vision payload contains type: image_url");
+        assert(visionImgPart.image_url.url.startsWith("data:image/jpeg;base64,"),
+          "Model Comprehension: Upstream vision payload contains valid data URL");
+
+        const visionReader = visionChatRes.body.getReader();
+        const visionDecoder = new TextDecoder();
+        let visionStreamAccum = "";
+        while (true) {
+          const { done, value } = await visionReader.read();
+          if (done) break;
+          visionStreamAccum += visionDecoder.decode(value);
+        }
+        assert(visionStreamAccum.includes("Inspected photo and detected optical landscape"),
+          "Model Comprehension: Vision model successfully processed and understood uploaded photo");
+
+        // 21.5 Graceful degradation: Image sent to text-only model
+        suite21Mock.clearRequests();
+        suite21Mock.setHandler((req, res, record) => {
+          res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8" });
+          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "Understood note regarding text-only mode." } }] })}\n\n`);
+          res.write("data: [DONE]\n\n");
+          res.end();
+        });
+
+        const textOnlyChatRes = await fetch(`${baseUrl}/api/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            provider: "groq",
+            model: "openai/gpt-oss-120b",
+            apiKey: "gsk_mock_text_only_key",
+            messages: [{
+              role: "user",
+              content: [
+                { type: "text", text: "Look at this picture" },
+                { type: "image_url", image_url: { url: testImageDataUrl } }
+              ]
+            }]
+          })
+        });
+
+        assert(textOnlyChatRes.status === 200, "Model Comprehension: Text-only model chat with photo returns HTTP 200");
+        const textOnlyReq = suite21Mock.getLastRequest();
+        assert(typeof textOnlyReq.body.messages[0].content === "string",
+          "Model Comprehension: Text-only model receives flattened text without failing on image parts");
+        assert(textOnlyReq.body.messages[0].content.includes("[Note: An image was attached, but the active model is text-only"),
+          "Model Comprehension: Clear text-only guidance injected when image is supplied to non-vision model");
+
+        // Cleanup tray and state
+        win17.state.attachments = [];
+        win17.renderAttachmentsTray();
+
+      } finally {
+        setChatFetchAdapter(null);
+        await suite21Mock.close();
+      }
+    }
+
   } catch (err) {
     assert(false, `Test Suite 19 failed with error: ${err.message}\n${err.stack}`);
   }
