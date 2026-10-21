@@ -394,28 +394,179 @@ function inferProvider(modelId) {
 }
 
 // ==========================================================
-// TOAST NOTIFICATIONS (SAFE DOM CONSTRUCTION - H5)
+// TOAST NOTIFICATIONS (SAFE DOM CONSTRUCTION & POLICY - H5)
 // ==========================================================
-function showToast(message, type = "info") {
+const toastState = {
+  maxVisible: 2,
+  activeToasts: [],
+  recentHistory: new Map(),
+  dedupeWindowMs: 2000
+};
+
+// Global Escape key listener to dismiss the newest toast
+if (typeof document !== "undefined") {
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && toastState.activeToasts.length > 0) {
+      const newest = toastState.activeToasts[toastState.activeToasts.length - 1];
+      if (newest && typeof newest._dismiss === "function") {
+        newest._dismiss();
+      }
+    }
+  });
+}
+
+function dismissToastElement(toast, immediate = false) {
+  if (!toast || toast._isDismissing) return;
+  toast._isDismissing = true;
+  clearTimeout(toast._timer);
+
+  const idx = toastState.activeToasts.indexOf(toast);
+  if (idx !== -1) toastState.activeToasts.splice(idx, 1);
+
+  if (immediate) {
+    toast.remove();
+    return;
+  }
+
+  toast.style.opacity = "0";
+  toast.style.transform = "translateY(8px) scale(0.96)";
+  setTimeout(() => {
+    toast.remove();
+  }, 220);
+}
+
+function showToast(message, type = "info", options = {}) {
+  // Option: silent suppresses toast creation entirely
+  if (options && options.silent === true) {
+    return null;
+  }
+
+  if (!message || (typeof message !== "string" && typeof message !== "object")) {
+    return null;
+  }
+
+  const rawMsg = typeof message === "string" ? message : (message.message || String(message));
+  const normMsg = normalizeErrorMessage(rawMsg);
+  if (!normMsg) return null;
+
   const safeType = ["success", "error", "info", "warning"].includes(type) ? type : "info";
+  const now = Date.now();
+  const dedupeKey = (options && options.dedupeKey) || `${safeType}:${normMsg}`;
+
+  // Check if an identical toast is currently visible
+  const existingActive = toastState.activeToasts.find(t => t._dedupeKey === dedupeKey);
+  if (existingActive) {
+    if (options && options.replace) {
+      dismissToastElement(existingActive, true);
+    } else {
+      // Re-trigger / update existing toast without creating duplicate DOM nodes
+      existingActive.classList.remove("pulse");
+      if (typeof existingActive.offsetWidth !== "undefined") {
+        void existingActive.offsetWidth;
+      }
+      existingActive.classList.add("pulse");
+
+      const duration = (options && typeof options.duration === "number")
+        ? options.duration
+        : (safeType === "error" ? 5000 : safeType === "warning" ? 4000 : 2000);
+
+      existingActive._startTime = Date.now();
+      existingActive._remainingTime = duration;
+      clearTimeout(existingActive._timer);
+      if (!options || !options.persistent) {
+        existingActive._timer = setTimeout(() => dismissToastElement(existingActive), duration);
+      }
+      toastState.recentHistory.set(dedupeKey, now);
+      return existingActive;
+    }
+  }
+
+  // Deduplicate identical messages triggered within short dedupeWindowMs (2 seconds)
+  const lastSeen = toastState.recentHistory.get(dedupeKey);
+  if (lastSeen && (now - lastSeen < toastState.dedupeWindowMs) && !(options && options.replace)) {
+    return null;
+  }
+  toastState.recentHistory.set(dedupeKey, now);
+
+  // Clean up older history entries
+  if (toastState.recentHistory.size > 50) {
+    for (const [k, time] of toastState.recentHistory.entries()) {
+      if (now - time > 10000) toastState.recentHistory.delete(k);
+    }
+  }
+
+  if (!DOM.toastContainer) return null;
+
+  // Enforce visible toast limit (max 2 visible toasts)
+  while (toastState.activeToasts.length >= toastState.maxVisible) {
+    dismissToastElement(toastState.activeToasts[0], true);
+  }
+
   const toast = document.createElement("div");
   toast.className = `toast ${safeType}`;
+  toast._dedupeKey = dedupeKey;
+  toast._dismiss = () => dismissToastElement(toast);
+
+  // Accessibility: Assertive for errors, polite for normal status
+  if (safeType === "error") {
+    toast.setAttribute("role", "alert");
+    toast.setAttribute("aria-live", "assertive");
+  } else {
+    toast.setAttribute("role", "status");
+    toast.setAttribute("aria-live", "polite");
+  }
 
   const iconSpan = document.createElement("span");
-  iconSpan.textContent = safeType === "success" ? "✅" : safeType === "error" ? "⚠️" : "ℹ️";
+  iconSpan.className = "toast-icon";
+  iconSpan.textContent = safeType === "success" ? "✅" : safeType === "error" ? "⚠️" : safeType === "warning" ? "🔔" : "ℹ️";
 
   const msgSpan = document.createElement("span");
   msgSpan.className = "toast-msg";
-  msgSpan.textContent = normalizeErrorMessage(message);
+  msgSpan.textContent = normMsg;
+
+  const closeBtn = document.createElement("button");
+  closeBtn.className = "toast-close-btn";
+  closeBtn.type = "button";
+  closeBtn.setAttribute("aria-label", "Close notification");
+  closeBtn.textContent = "×";
+  closeBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    dismissToastElement(toast);
+  });
 
   toast.appendChild(iconSpan);
   toast.appendChild(msgSpan);
+  toast.appendChild(closeBtn);
   DOM.toastContainer.appendChild(toast);
+  toastState.activeToasts.push(toast);
 
-  setTimeout(() => {
-    toast.style.opacity = "0";
-    setTimeout(() => toast.remove(), 250);
-  }, 3200);
+  const duration = (options && typeof options.duration === "number")
+    ? options.duration
+    : (safeType === "error" ? 5000 : safeType === "warning" ? 4000 : 2000);
+
+  let startTime = Date.now();
+  let remainingTime = duration;
+
+  const scheduleDismiss = (ms) => {
+    if (options && options.persistent) return;
+    clearTimeout(toast._timer);
+    toast._timer = setTimeout(() => dismissToastElement(toast), ms);
+  };
+
+  toast.addEventListener("mouseenter", () => {
+    if (options && options.persistent) return;
+    clearTimeout(toast._timer);
+    remainingTime = Math.max(500, remainingTime - (Date.now() - startTime));
+  });
+
+  toast.addEventListener("mouseleave", () => {
+    if (options && options.persistent) return;
+    startTime = Date.now();
+    scheduleDismiss(remainingTime);
+  });
+
+  scheduleDismiss(duration);
+  return toast;
 }
 
 let isPurifyConfigured = false;
@@ -832,12 +983,6 @@ function selectModel(modelId, provider) {
 
   // 3. Update all UI representations consistently
   updateActiveModelUI(modelId, resolvedProvider);
-
-  if (modelId.includes("r1")) {
-    showToast(`DeepSeek R1 selected. Note: Generates deep reasoning before answering (~30-90s). Switch to Gemini 2.0 Flash for instant replies!`, "info");
-  } else {
-    showToast(`Switched to ${modelObj.name} (${modelObj.speed || "100% Free"})`, "info");
-  }
   return true;
 }
 
@@ -935,7 +1080,6 @@ function selectEmbeddingModel(modelId) {
   localStorage.setItem("roro_active_embed_model", modelId);
   renderEmbeddingsUI();
   DOM.testerActiveModelBadge.textContent = `Model: ${modelId} (100% Free - 0 Cost)`;
-  showToast(`Active embedding model set to ${modelId}`, "info");
 }
 
 function renderModelsUI() {
@@ -1705,11 +1849,16 @@ function renderAttachmentsTray() {
 
   state.attachments.forEach(att => {
     const chip = document.createElement("div");
-    chip.className = `attachment-chip ${att.type}`;
+    chip.className = `attachment-chip ${att.type}${att.isProcessing ? " processing" : ""}`;
     chip.setAttribute("data-id", att.id);
 
     // Visual element: Safe image thumbnail or icon
-    if (att.type === "image") {
+    if (att.isProcessing) {
+      const iconSpan = document.createElement("span");
+      iconSpan.className = "chip-icon chip-spinner";
+      iconSpan.textContent = "⏳";
+      chip.appendChild(iconSpan);
+    } else if (att.type === "image") {
       const rawSrc = (att.previewUrl || att.base64Data || "").trim();
       if (rawSrc && isSafeUrl(rawSrc, true)) {
         const thumb = document.createElement("img");
@@ -1819,7 +1968,7 @@ function renderAttachmentsTray() {
   });
 
   if (DOM.sendBtn) {
-    DOM.sendBtn.disabled = state.isGenerating;
+    DOM.sendBtn.disabled = state.isGenerating || state.attachments.some(a => a.isProcessing);
   }
 }
 
@@ -1934,9 +2083,8 @@ async function handleDocumentFiles(files) {
 
       state.attachments.push(attachment);
       renderAttachmentsTray();
-      showToast(`Attached document "${file.name}"!`, "success");
     } catch (err) {
-      showToast(`Failed to parse "${file.name}": ${err.message}`, "error");
+      showToast(`Failed to parse "${file.name}": ${err.message}`, "error", { dedupeKey: "doc-parse-error" });
     }
   }
 }
@@ -2202,19 +2350,27 @@ async function handlePhotoFiles(files) {
     const isImageMime = file.type && file.type.startsWith("image/");
     const hasImageExt = file.name && /\.(jpe?g|png|webp|gif|bmp|heic|svg)$/i.test(file.name);
     if (!isImageMime && !hasImageExt && file.type) {
-      showToast(`"${file.name}" is not a recognized image format.`, "error");
+      showToast(`"${file.name}" is not a recognized image format.`, "error", { dedupeKey: "invalid-img-format" });
       continue;
     }
 
     if (file.size > 20 * 1024 * 1024) {
-      showToast(`Image "${file.name}" exceeds 20MB limit.`, "error");
+      showToast(`Image "${file.name}" exceeds 20MB limit.`, "error", { dedupeKey: "img-oversized" });
       continue;
     }
 
-    // Show progress toast when processing large images (> 2MB)
-    if (file.size > 2 * 1024 * 1024) {
-      showToast(`Optimizing image "${file.name}"...`, "info");
-    }
+    // Inline processing placeholder chip in composer attachments tray
+    const tempId = "att_img_" + Date.now() + "_" + Math.random().toString(36).substr(2, 4);
+    const placeholder = {
+      id: tempId,
+      type: "image",
+      name: file.name,
+      meta: "Processing image...",
+      isProcessing: true,
+      createdAt: Date.now()
+    };
+    state.attachments.push(placeholder);
+    renderAttachmentsTray();
 
     try {
       // Normalize image with shared client-side helper
@@ -2227,25 +2383,21 @@ async function handlePhotoFiles(files) {
       const blobId = await storeAttachmentBlob(normalized.blob, normalized.mimeType || "image/jpeg");
       const objectUrl = getObjectUrlForBlob(blobId, normalized.blob);
 
-      const attachment = {
-        id: "att_img_" + Date.now() + "_" + Math.random().toString(36).substr(2, 4),
-        type: "image",
-        name: file.name,
-        size: normalized.size,
-        mimeType: normalized.mimeType || "image/jpeg",
-        blobId: blobId,
-        previewUrl: objectUrl,
-        meta: formatBytes(normalized.size) + (normalized.width && normalized.height ? ` (${normalized.width}x${normalized.height})` : ""),
-        width: normalized.width,
-        height: normalized.height,
-        wasDownscaled: normalized.wasDownscaled,
-        createdAt: Date.now()
-      };
-      state.attachments.push(attachment);
+      placeholder.size = normalized.size;
+      placeholder.mimeType = normalized.mimeType || "image/jpeg";
+      placeholder.blobId = blobId;
+      placeholder.previewUrl = objectUrl;
+      placeholder.meta = formatBytes(normalized.size) + (normalized.width && normalized.height ? ` (${normalized.width}x${normalized.height})` : "");
+      placeholder.width = normalized.width;
+      placeholder.height = normalized.height;
+      placeholder.wasDownscaled = normalized.wasDownscaled;
+      delete placeholder.isProcessing;
+
       renderAttachmentsTray();
-      showToast(`Attached photo "${file.name}"!`, "success");
     } catch (err) {
-      showToast(`Failed to optimize "${file.name}": ${err.message}`, "error");
+      state.attachments = state.attachments.filter(a => a.id !== tempId);
+      renderAttachmentsTray();
+      showToast(`Failed to optimize "${file.name}": ${err.message}`, "error", { dedupeKey: "img-process-error" });
     }
   }
 }
@@ -2413,9 +2565,8 @@ async function useCapturedPhoto() {
     state.attachments.push(attachment);
     renderAttachmentsTray();
     closeCameraModal();
-    showToast("Photo captured and attached!", "success");
   } catch (err) {
-    showToast(`Failed saving captured photo: ${err.message}`, "error");
+    showToast(`Failed saving captured photo: ${err.message}`, "error", { dedupeKey: "cam-save-error" });
   }
 }
 
@@ -2427,12 +2578,12 @@ async function fetchAndAttachWebLink() {
   const instruction = (DOM.webLinkInstructionInput.value || "").trim();
 
   if (!url) {
-    showToast("Please enter a valid website URL", "error");
+    showToast("Please enter a valid website URL", "error", { dedupeKey: "weblink-input-error" });
     return;
   }
 
   if (!url.startsWith("http://") && !url.startsWith("https://")) {
-    showToast("URL must start with http:// or https://", "error");
+    showToast("URL must start with http:// or https://", "error", { dedupeKey: "weblink-input-error" });
     return;
   }
 
@@ -2511,7 +2662,6 @@ async function fetchAndAttachWebLink() {
     state.attachments.push(attachment);
     renderAttachmentsTray();
 
-    showToast(`Website "${attachment.name}" attached!`, "success");
     setTimeout(() => {
       DOM.webLinkModal.classList.remove("open");
       DOM.webLinkUrlInput.value = "";
@@ -2523,7 +2673,6 @@ async function fetchAndAttachWebLink() {
     DOM.webLinkStatusBox.className = "weblink-status-box error";
     DOM.webLinkStatusBox.replaceChildren();
     DOM.webLinkStatusBox.textContent = `⚠️ ${normalizeErrorMessage(err.message)}`;
-    showToast(err.message, "error");
   } finally {
     DOM.fetchAndAttachUrlBtn.disabled = false;
   }
@@ -2667,7 +2816,6 @@ function renderSkillsList() {
           deactivateSkill();
         }
         await initSkills();
-        showToast("Skill deleted", "info");
       }
     });
 
@@ -2684,7 +2832,6 @@ function activateSkill(skill) {
   DOM.skillModal.classList.remove("open");
   if (typeof updateModalBodyScroll === "function") updateModalBodyScroll();
   renderSkillsList();
-  showToast(`Activated skill: "${skill.name}"! Applied to upcoming chat responses.`, "success");
 }
 
 function deactivateSkill() {
@@ -2693,7 +2840,6 @@ function deactivateSkill() {
     DOM.activeSkillComposerChip.style.display = "none";
   }
   renderSkillsList();
-  showToast("Skill deactivated.", "info");
 }
 
 async function handleSkillFileInput(file) {
@@ -2949,7 +3095,6 @@ function renderLibraryGrid() {
       if (confirm(`Remove "${item.name}" from your Personal Library?`)) {
         await idbDelete(IDB_STORE_LIB, item.id);
         await loadLibrary();
-        showToast("Item removed from library", "info");
       }
     });
 
@@ -2971,7 +3116,6 @@ function attachLibraryItemToChat(item) {
     DOM.libraryModal.classList.remove("open");
     if (typeof updateModalBodyScroll === "function") updateModalBodyScroll();
   }
-  showToast(`Attached "${item.name}" from Library!`, "success");
 }
 
 function showImagePreviewInModal(imageSrc, title = "Photo", itemToAttach = null) {
@@ -3456,7 +3600,6 @@ function deleteChat(chatId, e) {
       saveChatsToStorage();
       renderConversationsSidebar();
     }
-    showToast("Chat deleted", "info");
   }
 }
 
@@ -4385,7 +4528,7 @@ function initEvents() {
     state.soundEnabled = !state.soundEnabled;
     localStorage.setItem("roro_sfx", state.soundEnabled);
     DOM.sfxToggleBtn.style.color = state.soundEnabled ? "var(--text-main)" : "var(--text-faint)";
-    showToast(`Sound FX ${state.soundEnabled ? "Enabled" : "Disabled"}`);
+    DOM.sfxToggleBtn.title = `Sound FX: ${state.soundEnabled ? "Enabled" : "Disabled"}`;
   });
 
   // Modals open/close
@@ -4462,8 +4605,16 @@ function initEvents() {
     localStorage.setItem("roro_temperature", state.temperature);
 
     updateApiKeyBadge(false);
+
+    // Lightweight inline button feedback
+    const origText = DOM.saveSettingsBtn.textContent;
+    DOM.saveSettingsBtn.textContent = "Saved ✓";
+    setTimeout(() => {
+      DOM.saveSettingsBtn.textContent = origText;
+    }, 600);
+
     DOM.settingsModal.classList.remove("open");
-    showToast("Settings saved successfully!", "success");
+    if (typeof updateModalBodyScroll === "function") updateModalBodyScroll();
   });
 
   // API Key visibility toggle (if present)
@@ -4536,7 +4687,6 @@ function initEvents() {
       current.messages = [];
       saveChatsToStorage();
       renderMessages([]);
-      showToast("Conversation cleared", "info");
     }
   });
 
@@ -4981,6 +5131,8 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 if (typeof window !== "undefined") {
+  window.showToast = showToast;
+  window.toastState = toastState;
   window.renderConversationsSidebar = renderConversationsSidebar;
   window.deleteChat = deleteChat;
   window.loadChat = loadChat;

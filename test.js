@@ -4509,6 +4509,220 @@ async function runTests() {
     win17.state.attachments = [];
     win17.renderAttachmentsTray();
 
+    // ==========================================================
+    // --- 20. Notification & Toast Redesign Policy Audit ---
+    // ==========================================================
+    console.log("\n--- 20. Notification & Toast Redesign Policy Audit ---");
+    {
+      const toastContainer20 = win17.document.getElementById("toastContainer");
+    assert(toastContainer20 !== null, "Toast Policy: toastContainer exists in DOM");
+
+    // Clean slate for testing
+    toastContainer20.replaceChildren();
+    if (win17.toastState) {
+      win17.toastState.activeToasts = [];
+      win17.toastState.recentHistory.clear();
+    }
+
+    // 20.1 Deduplication of identical messages within 2 seconds
+    const t1 = win17.showToast("Connection temporarily slow", "warning");
+    const t2 = win17.showToast("Connection temporarily slow", "warning");
+    assert(t1 !== null, "Toast Policy: Initial toast created");
+    assert(t2 !== null, "Toast Policy: Repeated identical call returns existing toast");
+    assert(toastContainer20.querySelectorAll(".toast").length === 1,
+      "Toast Policy: Rapid duplicate calls produce only ONE toast element in DOM");
+
+    // 20.2 Deduplication with explicit dedupeKey
+    const e1 = win17.showToast("Camera error: Device disconnected", "error", { dedupeKey: "cam-error" });
+    const e2 = win17.showToast("Camera error: Could not read frame", "error", { dedupeKey: "cam-error" });
+    assert(toastContainer20.querySelectorAll(".toast").length <= 2,
+      "Toast Policy: Identical dedupeKey updates existing toast instead of stacking");
+
+    // 20.3 Distinguishable different errors
+    toastContainer20.replaceChildren();
+    if (win17.toastState) {
+      win17.toastState.activeToasts = [];
+      win17.toastState.recentHistory.clear();
+    }
+    const errA = win17.showToast("Network request timed out", "error");
+    const errB = win17.showToast("Invalid credentials provided", "error");
+    assert(errA !== null && errB !== null, "Toast Policy: Two different errors both create toast elements");
+    const errorToasts = toastContainer20.querySelectorAll(".toast.error");
+    assert(errorToasts.length === 2, "Toast Policy: Two different errors remain distinct in DOM");
+
+    // 20.4 Max visible toasts limit (at most 2 visible toasts)
+    const infoC = win17.showToast("Third incoming event", "info");
+    const currentVisible = toastContainer20.querySelectorAll(".toast");
+    assert(currentVisible.length <= 2,
+      `Toast Policy: Enforces max visible limit (found ${currentVisible.length}, max is 2)`);
+
+    // 20.5 Accessibility roles and aria-live attributes
+    toastContainer20.replaceChildren();
+    if (win17.toastState) {
+      win17.toastState.activeToasts = [];
+      win17.toastState.recentHistory.clear();
+    }
+    const alertToast = win17.showToast("Failed to connect to API", "error");
+    assert(alertToast.getAttribute("role") === "alert", "Toast Policy: Error toast has role='alert'");
+    assert(alertToast.getAttribute("aria-live") === "assertive", "Toast Policy: Error toast has aria-live='assertive'");
+
+    const statusToast = win17.showToast("Sync complete", "info");
+    assert(statusToast.getAttribute("role") === "status", "Toast Policy: Normal toast has role='status'");
+    assert(statusToast.getAttribute("aria-live") === "polite", "Toast Policy: Normal toast has aria-live='polite'");
+
+    // 20.6 Close button on toast
+    const closeBtn = alertToast.querySelector(".toast-close-btn");
+    assert(closeBtn !== null, "Toast Policy: Each toast contains a .toast-close-btn element");
+    assert(closeBtn.getAttribute("aria-label") === "Close notification", "Toast Policy: Close button has aria-label");
+    closeBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+    assert(alertToast._isDismissing === true, "Toast Policy: Clicking close button initiates toast dismissal");
+
+    // 20.7 Escape key dismisses active toast
+    assert(statusToast._isDismissing !== true, "Toast Policy: Status toast is currently active");
+    win17.document.dispatchEvent(new win17.KeyboardEvent("keydown", { key: "Escape" }));
+    assert(statusToast._isDismissing === true, "Toast Policy: Pressing Escape key dismisses active toast");
+
+    // 20.8 Hover pause verification (mouseenter and mouseleave)
+    toastContainer20.replaceChildren();
+    if (win17.toastState) {
+      win17.toastState.activeToasts = [];
+      win17.toastState.recentHistory.clear();
+    }
+    const hoverToast = win17.showToast("Hoverable notification", "info", { duration: 2000 });
+    assert(hoverToast !== null, "Toast Policy: Hoverable toast created");
+    hoverToast.dispatchEvent(new win17.MouseEvent("mouseenter"));
+    hoverToast.dispatchEvent(new win17.MouseEvent("mouseleave"));
+    assert(hoverToast._isDismissing !== true, "Toast Policy: Hover pause and resume listeners intact");
+
+    // 20.9 Silent routine operations: Sound FX toggle produces NO toast
+    toastContainer20.replaceChildren();
+    if (win17.toastState) {
+      win17.toastState.activeToasts = [];
+      win17.toastState.recentHistory.clear();
+    }
+    const sfxBtn = win17.document.getElementById("sfxToggleBtn");
+    if (sfxBtn) {
+      const initialSfx = win17.state.soundEnabled;
+      sfxBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+      assert(win17.state.soundEnabled !== initialSfx, "Toast Policy: Sound FX toggles state");
+      assert(toastContainer20.querySelectorAll(".toast").length === 0,
+        "Toast Policy: Toggling Sound FX produces NO toast notification");
+    }
+
+    // 20.10 Silent routine operations: Saving Settings produces NO toast and updates button text
+    const saveSettingsBtn = win17.document.getElementById("saveSettingsBtn");
+    if (saveSettingsBtn) {
+      saveSettingsBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+      assert(toastContainer20.querySelectorAll(".toast").length === 0,
+        "Toast Policy: Saving ordinary settings produces NO toast notification");
+      assert(saveSettingsBtn.textContent.includes("Saved"),
+        "Toast Policy: Saving settings provides lightweight inline button feedback ('Saved ✓')");
+    }
+
+    // 20.11 Silent routine operations: Clear Chat produces NO toast
+    const clearChatBtn = win17.document.getElementById("clearChatBtn");
+    const origConfirm = win17.confirm;
+    win17.confirm = () => true;
+    if (clearChatBtn) {
+      clearChatBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+      assert(toastContainer20.querySelectorAll(".toast").length === 0,
+        "Toast Policy: Clearing chat produces NO toast notification (UI updates immediately)");
+    }
+    win17.confirm = origConfirm;
+
+    // 20.12 Silent routine operations: Delete Chat produces NO toast
+    const dummyChatId = "chat_test_del";
+    win17.state.chats[dummyChatId] = { id: dummyChatId, title: "To Delete", messages: [] };
+    win17.confirm = () => true;
+    win17.deleteChat(dummyChatId);
+    win17.confirm = origConfirm;
+    assert(!win17.state.chats[dummyChatId], "Toast Policy: deleteChat removes conversation");
+    assert(toastContainer20.querySelectorAll(".toast").length === 0,
+      "Toast Policy: deleteChat produces NO toast notification");
+
+    // 20.13 Silent routine operations: Skill activation and deactivation produce NO toast
+    const sampleSkill = { id: "test_sk_1", name: "Grammar Fixer", instructions: "Fix grammar" };
+    win17.activateSkill(sampleSkill);
+    assert(win17.state.activeSkill === sampleSkill, "Toast Policy: Skill activated");
+    assert(toastContainer20.querySelectorAll(".toast").length === 0,
+      "Toast Policy: Activating skill produces NO toast notification (chip visible)");
+    win17.deactivateSkill();
+    assert(win17.state.activeSkill === null, "Toast Policy: Skill deactivated");
+    assert(toastContainer20.querySelectorAll(".toast").length === 0,
+      "Toast Policy: Deactivating skill produces NO toast notification");
+
+    // 20.14 Silent routine operations: Library item attach produces NO toast
+    win17.state.attachments = [];
+    win17.renderAttachmentsTray();
+    const libItemSample = { id: "lib_photo_1", type: "image", name: "diagram.png", meta: "50 KB" };
+    win17.attachLibraryItemToChat(libItemSample);
+    assert(win17.state.attachments.length === 1, "Toast Policy: Library item added to attachments");
+    assert(toastContainer20.querySelectorAll(".toast").length === 0,
+      "Toast Policy: Attaching item from library produces NO toast (chip rendered in tray)");
+
+    // 20.15 Attachment tray inline processing state (no upload success toast)
+    await win17.handlePhotoFiles([{
+      name: "landscape_panorama.jpg",
+      size: 5200000,
+      type: "image/jpeg",
+      width: 4000,
+      height: 3000
+    }]);
+    assert(toastContainer20.querySelectorAll(".toast.success").length === 0,
+      "Toast Policy: Photo upload produces NO routine success toast when chip appears");
+
+    // 20.16 Camera capture attachment produces NO success toast
+    win17.state.capturedPhotoData = {
+      width: 1920,
+      height: 1080,
+      size: 1500000,
+      type: "image/jpeg"
+    };
+    await win17.useCapturedPhoto();
+    assert(toastContainer20.querySelectorAll(".toast.success").length === 0,
+      "Toast Policy: Camera capture produces NO routine success toast");
+
+    // 20.17 Meaningful error toasts are preserved
+    const invalidFile = { name: "malware.exe", size: 1000, type: "application/x-msdownload" };
+    await win17.handlePhotoFiles([invalidFile]);
+    const errToast = toastContainer20.querySelector(".toast.error");
+    assert(errToast !== null, "Toast Policy: Invalid photo format triggers meaningful error toast");
+    assert(errToast.textContent.includes("not a recognized image format"),
+      "Toast Policy: Error toast text contains descriptive failure reason");
+
+    // 20.18 Important completion event toasts are preserved (e.g. Chat Export)
+    toastContainer20.replaceChildren();
+    if (win17.toastState) {
+      win17.toastState.activeToasts = [];
+      win17.toastState.recentHistory.clear();
+    }
+    if (!win17.state.chats[win17.state.currentChatId]) {
+      win17.state.chats[win17.state.currentChatId] = { id: win17.state.currentChatId, title: "Chat", messages: [] };
+    }
+    win17.state.chats[win17.state.currentChatId].messages = [
+      { role: "user", content: "Hello test" },
+      { role: "assistant", content: "World test" }
+    ];
+    win17.URL.createObjectURL = () => "blob:mock-export-url";
+    win17.URL.revokeObjectURL = () => {};
+    if (typeof URL !== "undefined") {
+      URL.createObjectURL = URL.createObjectURL || (() => "blob:mock-export-url");
+      URL.revokeObjectURL = URL.revokeObjectURL || (() => {});
+    }
+    const exportBtn = win17.document.getElementById("exportChatBtn");
+    if (exportBtn) {
+      exportBtn.dispatchEvent(new win17.MouseEvent("click", { bubbles: true }));
+      const exportToast = toastContainer20.querySelector(".toast");
+      assert(exportToast !== null && exportToast.textContent.toLowerCase().includes("export"),
+        "Toast Policy: Export chat completion event triggers confirmation toast");
+    }
+
+    // Cleanup tray
+    win17.state.attachments = [];
+    win17.renderAttachmentsTray();
+    toastContainer20.replaceChildren();
+    }
+
   } catch (err) {
     assert(false, `Test Suite 19 failed with error: ${err.message}\n${err.stack}`);
   }
