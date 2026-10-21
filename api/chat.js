@@ -205,48 +205,53 @@ export default async function handler(req, res) {
       : `=== Active Skill Instructions ===\n${skillPrompt.trim()}\n=== End Skill Instructions ===`;
   }
 
-  const formattedMessages = [];
-  if (effectiveSystemPrompt) {
-    formattedMessages.push({
-      role: "system",
-      content: effectiveSystemPrompt
-    });
-  }
-
-  for (const msg of messages) {
-    if (!msg || !msg.role || msg.content === undefined) continue;
-
-    if (Array.isArray(msg.content)) {
-      if (isVisionModel) {
-        formattedMessages.push({
-          role: msg.role,
-          content: msg.content
-        });
-      } else {
-        const textParts = [];
-        let hasImage = false;
-        for (const part of msg.content) {
-          if (part?.type === "text" && part.text) {
-            textParts.push(part.text);
-          } else if (part?.type === "image_url") {
-            hasImage = true;
-          }
-        }
-        if (hasImage) {
-          textParts.push("\n[Note: An image was attached, but the active model is text-only. Please switch to Gemini 2.0 Flash or Llama 3.2 Vision to inspect images.]");
-        }
-        formattedMessages.push({
-          role: msg.role,
-          content: textParts.join("\n") || "(attached content)"
-        });
-      }
-    } else {
-      formattedMessages.push({
-        role: msg.role,
-        content: String(msg.content)
+  function formatMessagesForProvider(rawMessages, sysPrompt, supportsVision) {
+    const formatted = [];
+    if (sysPrompt) {
+      formatted.push({
+        role: "system",
+        content: sysPrompt
       });
     }
+
+    for (const msg of rawMessages) {
+      if (!msg || !msg.role || msg.content === undefined) continue;
+
+      if (Array.isArray(msg.content)) {
+        if (supportsVision) {
+          formatted.push({
+            role: msg.role,
+            content: msg.content
+          });
+        } else {
+          const textParts = [];
+          let hasImage = false;
+          for (const part of msg.content) {
+            if (part?.type === "text" && part.text) {
+              textParts.push(part.text);
+            } else if (part?.type === "image_url") {
+              hasImage = true;
+            }
+          }
+          if (hasImage) {
+            textParts.push("\n[Note: An image was attached, but the active model is text-only. Please switch to Gemini 2.0 Flash or Llama 3.2 Vision to inspect images.]");
+          }
+          formatted.push({
+            role: msg.role,
+            content: textParts.join("\n") || "(attached content)"
+          });
+        }
+      } else {
+        formatted.push({
+          role: msg.role,
+          content: String(msg.content)
+        });
+      }
+    }
+    return formatted;
   }
+
+  const formattedMessages = formatMessagesForProvider(messages, effectiveSystemPrompt, isVisionModel);
 
   const payload = {
     model: targetModel,
@@ -284,6 +289,7 @@ export default async function handler(req, res) {
           targetModel = fallbackModelId;
           upstreamHeaders["Authorization"] = `Bearer ${finalApiKey}`;
           payload.model = targetModel;
+          payload.messages = formatMessagesForProvider(messages, effectiveSystemPrompt, false);
 
           upstreamRes = await fetchFn(providerConfig.endpoint, {
             method: "POST",
@@ -306,6 +312,7 @@ export default async function handler(req, res) {
         targetModel = fallbackModelId;
         upstreamHeaders["Authorization"] = `Bearer ${finalApiKey}`;
         payload.model = targetModel;
+        payload.messages = formatMessagesForProvider(messages, effectiveSystemPrompt, false);
 
         upstreamRes = await fetchFn(providerConfig.endpoint, {
           method: "POST",
@@ -354,6 +361,7 @@ export default async function handler(req, res) {
         finalApiKey = fallbackGroqKey;
         upstreamHeaders["Authorization"] = `Bearer ${finalApiKey}`;
         payload.model = targetModel;
+        payload.messages = formatMessagesForProvider(messages, effectiveSystemPrompt, false);
 
         const retryRes = await fetchFn(providerConfig.endpoint, {
           method: "POST",

@@ -339,6 +339,19 @@ async function runTests() {
     assert(visionModels.length >= 2, `Identified ${visionModels.length} vision-capable models (e.g. Gemini 2.0 Flash, Llama 3.2 Vision)`);
     const hasGeminiVision = visionModels.some(m => m.id === "gemini-2.0-flash");
     assert(hasGeminiVision, "gemini-2.0-flash has supportsVision: true");
+
+    const hasOllamaLlamaVision = visionModels.some(m => m.id === "ollama/llama3.2-vision" && m.supportsVision === true);
+    assert(hasOllamaLlamaVision, "100% Free Ollama Llama 3.2 Vision has supportsVision: true");
+
+    const hasOllamaLlavaVision = visionModels.some(m => m.id === "ollama/llava" && m.supportsVision === true);
+    assert(hasOllamaLlavaVision, "100% Free Ollama LLaVA Vision has supportsVision: true");
+
+    const { getModelById } = await import("./api/models.js");
+    const dynamicVision = getModelById("ollama/custom-vlm-experimental");
+    assert(dynamicVision && dynamicVision.supportsVision === true, "Dynamic Ollama vision tags (*vlm*, *vision*, *llava*) get supportsVision: true");
+
+    const dynamicText = getModelById("ollama/custom-text-fast");
+    assert(dynamicText && dynamicText.supportsVision === false, "Dynamic Ollama text tags get supportsVision: false");
   } catch (err) {
     assert(false, `Vision model checks failed: ${err.message}`);
   }
@@ -5013,6 +5026,43 @@ async function runTests() {
           "Model Comprehension: Text-only model receives flattened text without failing on image parts");
         assert(textOnlyReq.body.messages[0].content.includes("[Note: An image was attached, but the active model is text-only"),
           "Model Comprehension: Clear text-only guidance injected when image is supplied to non-vision model");
+
+        // 21.6 100% Free Ollama Vision Model (Zero API Keys & Multimodal Vision Part)
+        suite21Mock.clearRequests();
+        suite21Mock.setHandler((req, res, record) => {
+          res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8" });
+          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "Local Ollama Llama 3.2 Vision processed the image completely offline." } }] })}\n\n`);
+          res.write("data: [DONE]\n\n");
+          res.end();
+        });
+
+        const ollamaVisionRes = await fetch(`${baseUrl}/api/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            provider: "ollama",
+            model: "ollama/llama3.2-vision",
+            messages: [{
+              role: "user",
+              content: [
+                { type: "text", text: "Examine this local photo" },
+                { type: "image_url", image_url: { url: testImageDataUrl } }
+              ]
+            }]
+          })
+        });
+
+        assert(ollamaVisionRes.status === 200, "Model Comprehension: Ollama Vision chat request returns HTTP 200");
+        const ollamaVisionReq = suite21Mock.getLastRequest();
+        assert(ollamaVisionReq !== null, "Model Comprehension: Ollama vision request intercepted by mock model");
+        assert(ollamaVisionReq.url.includes("127.0.0.1:11434"), "Model Comprehension: Ollama vision routes to local loopback port 11434");
+        assert(!ollamaVisionReq.headers["authorization"], "Model Comprehension: Zero API keys sent or required for local Ollama vision");
+        assert(ollamaVisionReq.body.model === "llama3.2-vision", "Model Comprehension: Ollama target model stripped prefix to llama3.2-vision");
+        const ollamaUserMsg = ollamaVisionReq.body.messages.find(m => m.role === "user");
+        assert(Array.isArray(ollamaUserMsg.content), "Model Comprehension: Ollama vision message preserves multimodal content array");
+        const ollamaImgPart = ollamaUserMsg.content.find(p => p.type === "image_url");
+        assert(ollamaImgPart !== undefined, "Model Comprehension: Ollama vision payload includes image_url part");
+        assert(ollamaImgPart.image_url.url.startsWith("data:image/jpeg;base64,"), "Model Comprehension: Ollama vision receives valid data URL");
 
         // Cleanup tray and state
         win17.state.attachments = [];

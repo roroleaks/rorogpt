@@ -868,6 +868,17 @@ async function fetchModels() {
         description: "Ultra-fast Llama 3.1 70B on Cerebras CS-3. Available on Cerebras free tier."
       },
       {
+        id: "ollama/llama3.2-vision",
+        name: "Llama 3.2 Vision (Local Ollama)",
+        provider: "ollama",
+        speed: "💻 Local CPU/GPU",
+        badge: "Free Vision",
+        color: "#10b981",
+        icon: "👁️",
+        supportsVision: true,
+        description: "Meta's multimodal vision model running locally via Ollama with zero API keys."
+      },
+      {
         id: "ollama/llama3.2",
         name: "Llama 3.2 3B (Local Ollama)",
         provider: "ollama",
@@ -875,6 +886,7 @@ async function fetchModels() {
         badge: "100% Offline",
         color: "#06b6d4",
         icon: "🦙",
+        supportsVision: false,
         description: "Runs completely locally on your hardware. Zero API keys required."
       }
     ];

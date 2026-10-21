@@ -181,6 +181,32 @@ export const FREE_MODELS_BY_PROVIDER = {
   ],
   ollama: [
     {
+      id: "ollama/llama3.2-vision",
+      name: "Ollama Llama 3.2 Vision (Local)",
+      provider: "ollama",
+      speed: "💻 Local GPU/CPU",
+      badge: "★ Free Vision",
+      color: "#10b981",
+      icon: "👁️",
+      context: "128K",
+      supportsVision: true,
+      description: "Meta's multimodal vision model running 100% locally and privately via Ollama with zero API keys. Run with: ollama run llama3.2-vision",
+      infoUrl: "https://ollama.com/library/llama3.2-vision"
+    },
+    {
+      id: "ollama/llava",
+      name: "Ollama LLaVA Vision (Local)",
+      provider: "ollama",
+      speed: "💻 Local GPU/CPU",
+      badge: "Free Vision",
+      color: "#06b6d4",
+      icon: "🖼️",
+      context: "4K",
+      supportsVision: true,
+      description: "Open-source Large Language and Vision Assistant running 100% privately via Ollama. Run with: ollama run llava",
+      infoUrl: "https://ollama.com/library/llava"
+    },
+    {
       id: "ollama/llama3",
       name: "Ollama Llama 3 (Local)",
       provider: "ollama",
@@ -231,20 +257,21 @@ export function getModelById(modelId) {
     if (baseMatch) return { ...baseMatch, id: trimmed };
   }
 
-  // Local Ollama dynamic model support (e.g. ollama/mistral or any local model installed by user)
+  // Local Ollama dynamic model support (e.g. ollama/mistral, ollama/llama3.2-vision or any local model installed by user)
   if (trimmed.startsWith("ollama/")) {
     const rawTag = trimmed.replace("ollama/", "");
+    const isVision = /(vision|llava|vl|vlm)/i.test(rawTag);
     return {
       id: trimmed,
       name: `Ollama (${rawTag})`,
       provider: "ollama",
       speed: "💻 Local Hardware",
-      badge: "Local Ollama",
-      color: "#64748b",
-      icon: "💻",
+      badge: isVision ? "Local Vision" : "Local Ollama",
+      color: isVision ? "#10b981" : "#64748b",
+      icon: isVision ? "👁️" : "💻",
       context: "Local",
-      supportsVision: false,
-      description: `Locally running model '${rawTag}' via Ollama with zero API keys.`,
+      supportsVision: isVision,
+      description: `Locally running ${isVision ? "vision " : ""}model '${rawTag}' via Ollama with zero API keys.`,
       infoUrl: "https://ollama.com"
     };
   }
