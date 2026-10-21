@@ -1,4 +1,5 @@
 // 100% Free Semantic Similarity & Vector Calculator (Zero Paid Credits Required)
+import { handleCors } from "./_security.js";
 
 export const CURATED_EMBEDDING_MODELS = [
   {
@@ -49,8 +50,6 @@ function computeLocalEmbedding(text, dimensions = 256) {
   norm = Math.sqrt(norm) || 1;
   return vector.map(v => v / norm);
 }
-
-import { handleCors } from "./_security.js";
 
 export default async function handler(req, res) {
   if (!handleCors(req, res, "POST, GET, OPTIONS")) {
