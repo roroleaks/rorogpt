@@ -376,15 +376,28 @@ export default async function handler(req, res) {
       }
 
       if (!upstreamRes.ok) {
-        // Explicit detection for payment/quota issues — Never route to paid services
+        // Explicit detection for payment/quota issues (HTTP 402) — Never route to paid services
         if (
           upstreamRes.status === 402 ||
-          lowerErr.includes("insufficient credit") ||
-          lowerErr.includes("purchased credit") ||
-          lowerErr.includes("billing") ||
-          lowerErr.includes("payment required")
+          (upstreamRes.status !== 429 && (
+            lowerErr.includes("insufficient credit") ||
+            lowerErr.includes("purchased credit") ||
+            lowerErr.includes("billing") ||
+            lowerErr.includes("payment required")
+          ))
         ) {
           errorMsg = `The selected model '${modelEntry.name}' is unavailable under the current ${providerConfig.name} free tier access. RoroGPT operates strictly on free-tier access and never routes to paid services. Please check your provider quota or switch to another free model or Local Ollama.`;
+        } else if (upstreamRes.status === 429) {
+          // Clean up third-party billing/upgrade links from rate-limit message
+          let cleanRateLimitMsg = errorMsg
+            .replace(/https?:\/\/[^\s]+/g, "")
+            .replace(/visit\s+to\s+add\s+payment[.]?/gi, "")
+            .replace(/visit\s+to\s+upgrade[.]?/gi, "")
+            .trim();
+          if (!cleanRateLimitMsg.toLowerCase().includes("rate limit")) {
+            cleanRateLimitMsg = `Rate limit reached on ${providerConfig.name} developer free tier. ${cleanRateLimitMsg}`;
+          }
+          errorMsg = `${cleanRateLimitMsg} (Please wait a few seconds before trying again, or switch to GPT OSS 120B, Gemini 2.0 Flash, or Local Ollama.)`.trim();
         }
 
         return res.status(upstreamRes.status).json({
