@@ -376,34 +376,71 @@ export default async function handler(req, res) {
       }
 
       if (!upstreamRes.ok) {
-        // Explicit detection for payment/quota issues (HTTP 402) — Never route to paid services
+        const isRateOrTokenLimit =
+          upstreamRes.status === 429 ||
+          upstreamRes.status === 413 ||
+          lowerErr.includes("rate_limit_exceeded") ||
+          lowerErr.includes("rate limit") ||
+          lowerErr.includes("tokens per minute") ||
+          lowerErr.includes("itpm") ||
+          lowerErr.includes("tpm") ||
+          lowerErr.includes("too large for model") ||
+          lowerErr.includes("reduce your message size");
+
+        // Seamless fallback for Qwen 27B token/rate limits on Groq to Flagship GPT OSS 120B (with much higher token limits)
         if (
-          upstreamRes.status === 402 ||
-          (upstreamRes.status !== 429 && (
-            lowerErr.includes("insufficient credit") ||
-            lowerErr.includes("purchased credit") ||
-            lowerErr.includes("billing") ||
-            lowerErr.includes("payment required")
-          ))
+          isRateOrTokenLimit &&
+          resolvedProvider === "groq" &&
+          targetModel === "qwen/qwen3.8-27b" &&
+          !chatFetchAdapter
         ) {
-          errorMsg = `The selected model '${modelEntry.name}' is unavailable under the current ${providerConfig.name} free tier access. RoroGPT operates strictly on free-tier access and never routes to paid services. Please check your provider quota or switch to another free model or Local Ollama.`;
-        } else if (upstreamRes.status === 429) {
-          // Clean up third-party billing/upgrade links from rate-limit message
-          let cleanRateLimitMsg = errorMsg
-            .replace(/https?:\/\/[^\s]+/g, "")
-            .replace(/visit\s+to\s+add\s+payment[.]?/gi, "")
-            .replace(/visit\s+to\s+upgrade[.]?/gi, "")
-            .trim();
-          if (!cleanRateLimitMsg.toLowerCase().includes("rate limit")) {
-            cleanRateLimitMsg = `Rate limit reached on ${providerConfig.name} developer free tier. ${cleanRateLimitMsg}`;
+          console.warn(`[RoroGPT API] Groq Qwen token limit reached (${errorMsg}); automatically falling back to GPT OSS 120B.`);
+          const fallbackModelId = "openai/gpt-oss-120b";
+          const retryPayload = { ...payload, model: fallbackModelId };
+          const retryRes = await fetchFn(providerConfig.endpoint, {
+            method: "POST",
+            headers: upstreamHeaders,
+            body: JSON.stringify(retryPayload),
+            signal: abortController.signal
+          });
+          if (retryRes.ok) {
+            upstreamRes = retryRes;
+            targetModel = fallbackModelId;
           }
-          errorMsg = `${cleanRateLimitMsg} (Please wait a few seconds before trying again, or switch to GPT OSS 120B, Gemini 2.0 Flash, or Local Ollama.)`.trim();
         }
 
-        return res.status(upstreamRes.status).json({
-          error: errorMsg,
-          status: upstreamRes.status
-        });
+        if (!upstreamRes.ok) {
+          // Explicit detection for payment/quota issues (HTTP 402) — Never route to paid services
+          if (
+            upstreamRes.status === 402 ||
+            (!isRateOrTokenLimit && (
+              lowerErr.includes("insufficient credit") ||
+              lowerErr.includes("purchased credit") ||
+              lowerErr.includes("payment required") ||
+              (lowerErr.includes("billing") && !lowerErr.includes("console.groq.com"))
+            ))
+          ) {
+            errorMsg = `The selected model '${modelEntry.name}' is unavailable under the current ${providerConfig.name} free tier access. RoroGPT operates strictly on free-tier access and never routes to paid services. Please check your provider quota or switch to another free model or Local Ollama.`;
+          } else if (isRateOrTokenLimit) {
+            // Clean up third-party billing/upgrade links from rate-limit message
+            let cleanRateLimitMsg = errorMsg
+              .replace(/https?:\/\/[^\s]+/g, "")
+              .replace(/Need more tokens\?[^.]*\./gi, "")
+              .replace(/Visit\s+to\s+add\s+payment[.]?/gi, "")
+              .replace(/Upgrade to Dev Tier today[^.]*\./gi, "")
+              .replace(/Visit\s+to\s+upgrade[.]?/gi, "")
+              .trim();
+            if (!cleanRateLimitMsg.toLowerCase().includes("rate limit") && !cleanRateLimitMsg.toLowerCase().includes("too large")) {
+              cleanRateLimitMsg = `Rate or token limit reached on ${providerConfig.name} developer free tier. ${cleanRateLimitMsg}`;
+            }
+            errorMsg = `${cleanRateLimitMsg} (Tip: Please wait a few seconds and try again, or switch to GPT OSS 120B, Gemini 2.0 Flash, or Local Ollama.)`.trim();
+          }
+
+          return res.status(upstreamRes.status).json({
+            error: errorMsg,
+            status: upstreamRes.status
+          });
+        }
       }
     }
 
