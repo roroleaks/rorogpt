@@ -123,10 +123,10 @@ async function runTests() {
   const inferProviderFn = new Function(`${fnMatch[0]}; return inferProvider;`)();
   assert(inferProviderFn("gemini-2.0-flash") === "gemini", "inferProvider: maps gemini-2.0-flash to gemini");
   assert(inferProviderFn("gemini-1.5-pro") === "gemini", "inferProvider: maps gemini-1.5-pro to gemini");
-  assert(inferProviderFn("cerebras/llama3.1-8b") === "cerebras", "inferProvider: maps cerebras/* to cerebras");
+  assert(inferProviderFn("cerebras/llama3.1-70b") === "cerebras", "inferProvider: maps cerebras/* to cerebras");
   assert(inferProviderFn("ollama/llama3.2") === "ollama", "inferProvider: maps ollama/* to ollama");
   assert(inferProviderFn("qwen/qwen3.8-27b") === "groq", "inferProvider: maps Groq model to groq");
-  assert(inferProviderFn("llama-3.3-70b-versatile") === "groq", "inferProvider: maps Groq llama model to groq");
+  assert(inferProviderFn("meta-llama/llama-3.1-70b") === "groq", "inferProvider: maps Groq llama model to groq");
   assert(inferProviderFn("") === "groq", "inferProvider: maps empty model string to groq");
   assert(inferProviderFn(null) === "groq", "inferProvider: maps null model to groq");
   assert(inferProviderFn(undefined) === "groq", "inferProvider: maps undefined model to groq");
@@ -190,9 +190,13 @@ async function runTests() {
 
     const hasGemini = data.models.some(m => m.id === "gemini-2.0-flash" && m.provider === "gemini");
     assert(hasGemini, "100% Free Google model 'gemini-2.0-flash' is present");
+    const hasGemini25 = data.models.some(m => m.id === "gemini-2.5-flash" && m.provider === "gemini");
+    assert(hasGemini25, "100% Free Google flagship model 'gemini-2.5-flash' is present");
 
-    const hasCerebras = data.models.some(m => (m.id === "cerebras/llama3.1-70b" || m.id.includes("llama3")) && m.provider === "cerebras");
-    assert(hasCerebras, "100% Free Cerebras model 'cerebras/llama3.1-70b' (1800 tok/s) is present");
+    const hasCerebras = data.models.some(m => m.id === "llama3.1-70b" && m.provider === "cerebras");
+    const hasCerebrasQwen = data.models.some(m => m.id === "qwen3.8-27b" && m.provider === "cerebras");
+    assert(hasCerebras, "100% Free Cerebras model 'llama3.1-70b' is present");
+    assert(hasCerebrasQwen, "100% Free Cerebras model 'qwen3.8-27b' (migration target for deprecated llama3.3-70b / gemma-4-31b) is present");
 
     const hasLocal = data.models.some(m => m.provider === "ollama" || m.provider === "local");
     assert(hasLocal, "100% Free Local Ollama offline models are present");
@@ -457,6 +461,35 @@ async function runTests() {
     });
     assert(roroVercelRes.status === 204, "CORS: Exact rorogpt.vercel.app origin allowed in production (HTTP 204)");
     assert(roroVercelRes.headers.get("access-control-allow-origin") === "https://rorogpt.vercel.app", "CORS: Access-Control-Allow-Origin echoes rorogpt.vercel.app");
+
+    // 7.6.2 Auth bypass regression guards (Tier S Directive 1)
+    const { checkAuth } = await import("./api/_security.js");
+    process.env.NODE_ENV = "production";
+    delete process.env.APP_API_TOKEN;
+    delete process.env.ALLOWED_ORIGINS;
+
+    // Substring host bypass test: Origin contains Host as substring but is not same-origin
+    let subStatus = 0;
+    const mockRes1 = { status(s) { subStatus = s; return this; }, json() {} };
+    checkAuth({ headers: { origin: "https://evil-ai.com", host: "ai.com" }, body: {} }, mockRes1);
+    assert(subStatus === 401, "Auth Guard: Substring Host bypass rejected (HTTP 401 Unauthorized)");
+
+    // Broad .vercel.app suffix bypass test: Arbitrary evil.vercel.app subdomain with no token
+    let evilVercelStatus = 0;
+    const mockRes2 = { status(s) { evilVercelStatus = s; return this; }, json() {} };
+    checkAuth({ headers: { origin: "https://evil.vercel.app" }, body: {} }, mockRes2);
+    assert(evilVercelStatus === 401, "Auth Guard: Arbitrary evil.vercel.app rejected without token (HTTP 401 Unauthorized)");
+
+    // Configured ALLOWED_ORIGINS allowlist test: Approved domain allowed without token
+    process.env.ALLOWED_ORIGINS = "https://rorogpt.vercel.app";
+    const approvedOriginRes = await fetch(`${baseUrl}/api/models`, {
+      method: "GET",
+      headers: {
+        "Origin": "https://rorogpt.vercel.app"
+      }
+    });
+    assert(approvedOriginRes.status === 200, "Auth Guard: Configured ALLOWED_ORIGINS domain accepted without token (HTTP 200 OK)");
+    delete process.env.ALLOWED_ORIGINS;
 
     // 7.7 Rate-Limit Rejection
     process.env.RATE_LIMIT_WINDOW_MS = "60000";
@@ -2532,7 +2565,7 @@ async function runTests() {
         models: [
           { id: "qwen/qwen3.8-27b", name: "Qwen 3.8 27B (Groq)", provider: "groq", speed: "⚡ Free", color: "#10b981" },
           { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash (Google)", provider: "gemini", speed: "⚡ Instant", color: "#3b82f6" },
-          { id: "cerebras/llama3.1-8b", name: "Llama 3.1 8B (Cerebras)", provider: "cerebras", speed: "⚡ Blazing", color: "#8b5cf6" },
+          { id: "cerebras/llama3.1-70b", name: "Llama 3.1 70B (Cerebras)", provider: "cerebras", speed: "⚡ Blazing", color: "#8b5cf6" },
           { id: "ollama/llama3.2", name: "Llama 3.2 3B (Local Ollama)", provider: "ollama", speed: "💻 Local", color: "#06b6d4" }
         ],
         skills: [],
@@ -2593,7 +2626,7 @@ async function runTests() {
     win.state.models = [
       { id: "qwen/qwen3.8-27b", name: "Qwen 3.8 27B (Groq)", provider: "groq", speed: "⚡ Free", color: "#10b981" },
       { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash (Google)", provider: "gemini", speed: "⚡ Instant", color: "#3b82f6" },
-      { id: "cerebras/llama3.1-8b", name: "Llama 3.1 8B (Cerebras)", provider: "cerebras", speed: "⚡ Blazing", color: "#8b5cf6" },
+      { id: "cerebras/llama3.1-70b", name: "Llama 3.1 70B (Cerebras)", provider: "cerebras", speed: "⚡ Blazing", color: "#8b5cf6" },
       { id: "ollama/llama3.2", name: "Llama 3.2 3B (Local Ollama)", provider: "ollama", speed: "💻 Local", color: "#06b6d4" }
     ];
 
@@ -2630,11 +2663,11 @@ async function runTests() {
       { role: "user", content: "Hello Qwen" },
       { role: "assistant", content: "Hello! I am Qwen.", model: "qwen/qwen3.8-27b", provider: "groq", modelName: "Qwen 3.8 27B" }
     ];
-    win.selectModel("cerebras/llama3.1-8b", "cerebras");
+    win.selectModel("cerebras/llama3.1-70b", "cerebras");
     const histMsg = win.state.chats[activeChatId].messages[1];
     assert(histMsg.model === "qwen/qwen3.8-27b", "Fix 8: Case 3 - Historical assistant message model is NOT mutated by selectModel");
     assert(histMsg.provider === "groq", "Fix 8: Case 3 - Historical assistant message provider is NOT mutated by selectModel");
-    assert(win.state.chats[activeChatId].model === "cerebras/llama3.1-8b", "Fix 8: Case 3 - Chat current selection updated to Cerebras");
+    assert(win.state.chats[activeChatId].model === "cerebras/llama3.1-70b", "Fix 8: Case 3 - Chat current selection updated to Cerebras");
 
     // 14.4 Case 4: A new assistant message records the exact model and provider used for its request
     let interceptedReqBody = null;
@@ -2666,10 +2699,10 @@ async function runTests() {
     win.DOM.chatInput.value = "Tell me a fact";
     await win.sendMessage();
     assert(interceptedReqBody !== null, "Fix 8: Case 4 - Outbound chat request dispatched");
-    assert(interceptedReqBody.model === "cerebras/llama3.1-8b", "Fix 8: Case 4 - Outbound request sent requested model");
+    assert(interceptedReqBody.model === "cerebras/llama3.1-70b", "Fix 8: Case 4 - Outbound request sent requested model");
     assert(interceptedReqBody.provider === "cerebras", "Fix 8: Case 4 - Outbound request sent requested provider");
     const newBotMsg = win.state.chats[activeChatId].messages[win.state.chats[activeChatId].messages.length - 1];
-    assert(newBotMsg.model === "cerebras/llama3.1-8b", "Fix 8: Case 4 - Assistant message recorded requested model ID");
+    assert(newBotMsg.model === "cerebras/llama3.1-70b", "Fix 8: Case 4 - Assistant message recorded requested model ID");
     assert(newBotMsg.provider === "cerebras", "Fix 8: Case 4 - Assistant message recorded requested provider ID");
     assert(newBotMsg.content === "Answer from Cerebras", "Fix 8: Case 4 - Assistant message received content");
 
@@ -2796,7 +2829,7 @@ async function runTests() {
       }
     });
     assert(usedModels.has("qwen/qwen3.8-27b (groq)"), "Fix 8: Case 9 - Model history includes Qwen turn");
-    assert(usedModels.has("cerebras/llama3.1-8b (cerebras)"), "Fix 8: Case 9 - Model history includes Cerebras turn");
+    assert(usedModels.has("cerebras/llama3.1-70b (cerebras)"), "Fix 8: Case 9 - Model history includes Cerebras turn");
     assert(usedModels.has("gemini-2.0-flash (gemini)"), "Fix 8: Case 9 - Model history includes Gemini turn");
 
     // 14.10 Case 10: Exported JSON preserves per-message model/provider data
@@ -2822,7 +2855,7 @@ async function runTests() {
     assert(parsedExportedJson.model === "qwen/qwen3.8-27b", "Fix 8: Case 10 - Exported JSON chat.model matches latest selection");
     assert(parsedExportedJson.provider === "groq", "Fix 8: Case 10 - Exported JSON chat.provider matches latest selection");
     const exportedAssistantMsgs = parsedExportedJson.messages.filter(m => m.role === "assistant");
-    assert(exportedAssistantMsgs.some(m => m.model === "cerebras/llama3.1-8b" && m.provider === "cerebras"), "Fix 8: Case 10 - Exported JSON preserves Cerebras turn");
+    assert(exportedAssistantMsgs.some(m => m.model === "cerebras/llama3.1-70b" && m.provider === "cerebras"), "Fix 8: Case 10 - Exported JSON preserves Cerebras turn");
     assert(exportedAssistantMsgs.some(m => m.model === "gemini-2.0-flash" && m.provider === "gemini"), "Fix 8: Case 10 - Exported JSON preserves Gemini turn");
 
     // 14.11 Case 11: PC-folder Markdown and JSON backups use the same accurate metadata
@@ -2831,7 +2864,7 @@ async function runTests() {
     const exportedMdText = writtenPCFiles[mdFileName];
     assert(exportedMdText.includes("Current Selected Model:"), "Fix 8: Case 11 - PC Markdown backup contains Current Selected Model header");
     assert(exportedMdText.includes("Model History:"), "Fix 8: Case 11 - PC Markdown backup contains Model History summary");
-    assert(exportedMdText.includes("### 🤖 RoroGPT (cerebras/llama3.1-8b • Provider: cerebras)"), "Fix 8: Case 11 - PC Markdown backup contains exact Cerebras turn attribution");
+    assert(exportedMdText.includes("### 🤖 RoroGPT (cerebras/llama3.1-70b • Provider: cerebras)"), "Fix 8: Case 11 - PC Markdown backup contains exact Cerebras turn attribution");
     assert(exportedMdText.includes("### 🤖 RoroGPT (gemini-2.0-flash • Provider: gemini)"), "Fix 8: Case 11 - PC Markdown backup contains exact Gemini turn attribution");
 
     // 14.12 Case 12: A malformed or unavailable model value is handled safely
@@ -5076,6 +5109,61 @@ async function runTests() {
 
   } catch (err) {
     assert(false, `Test Suite 19 failed with error: ${err.message}\n${err.stack}`);
+  }
+
+  // TEST SUITE 22: Catalog Freshness & Deprecation Guard (Tier A Defense)
+  console.log("\n--- 22. Catalog Freshness & Deprecation Guard ---");
+  try {
+    const DEPRECATED_IDS = [
+      "gemini-1.5-flash",
+      "gemini-1.5-pro",
+      "gemini-2.0-flash-lite",
+      "llama3.1-8b",
+      "llama3.3-70b",
+      "llama-3.3-70b-versatile",
+      "llama-3.1-8b-instant",
+      "deepseek-r1-distill-llama-70b",
+      "qwen3.6-27b",
+      "qwen-3-32b",
+      "gemma-4-31b",
+      "zai-glm-4.6",
+      "zai-glm-4.7"
+    ];
+
+    const modelsRes = await fetch(`${baseUrl}/api/models`);
+    assert(modelsRes.status === 200, "Catalog Freshness: GET /api/models returns HTTP 200");
+    const modelsData = await modelsRes.json();
+    assert(modelsData.success === true && Array.isArray(modelsData.models), "Catalog Freshness: Models array returned");
+    assert(modelsData.models.length === 12, `Catalog Freshness: Exactly 12 models in curated catalog (found ${modelsData.models.length})`);
+
+    // 1. No model ID in served payload appears in DEPRECATED_IDS
+    for (const m of modelsData.models) {
+      const isDeprecated = DEPRECATED_IDS.some(dep => m.id === dep || m.id.endsWith("/" + dep));
+      assert(!isDeprecated, `Catalog Freshness: Model '${m.id}' is not deprecated`);
+    }
+
+    // 2. Every model ID satisfies regex
+    for (const m of modelsData.models) {
+      const validId = typeof m.id === "string" && m.id.length > 0 && /^[a-z0-9._/-]+$/i.test(m.id);
+      assert(validId, `Catalog Freshness: Model ID '${m.id}' has valid format`);
+    }
+
+    // 3. Every infoUrl is https://
+    for (const m of modelsData.models) {
+      const isHttps = typeof m.infoUrl === "string" && m.infoUrl.startsWith("https://");
+      assert(isHttps, `Catalog Freshness: Model '${m.id}' infoUrl is HTTPS`);
+    }
+
+    // 4. Every provider is in approved free list
+    const APPROVED_PROVIDERS = ["groq", "gemini", "cerebras", "ollama"];
+    for (const m of modelsData.models) {
+      const isApproved = APPROVED_PROVIDERS.includes(m.provider);
+      assert(isApproved, `Catalog Freshness: Model '${m.id}' provider '${m.provider}' is approved`);
+    }
+
+    assert(true, "Catalog Freshness: All 12 models verified fresh, current, and active");
+  } catch (err) {
+    assert(false, `Test Suite 22 failed with error: ${err.message}\n${err.stack}`);
   }
 
   // Restore global fetch & cleanup server

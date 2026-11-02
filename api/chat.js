@@ -6,6 +6,9 @@ import {
   getDefaultModel
 } from "./models.js";
 
+const GROQ_FALLBACK_MODEL = process.env.GROQ_FALLBACK_MODEL || "qwen/qwen3.8-27b";
+const GROQ_FALLBACK_REASONING_MODEL = process.env.GROQ_FALLBACK_REASONING_MODEL || "openai/gpt-oss-120b";
+
 // Injectable fetch adapter for deterministic testing without external API calls
 let chatFetchAdapter = null;
 
@@ -46,7 +49,7 @@ function formatMessagesForProvider(rawMessages, sysPrompt, supportsVision) {
           }
         }
         if (hasImage) {
-          textParts.push("\n[Note: An image was attached, but the active model is text-only. Please switch to Gemini 2.0 Flash or Llama 3.2 Vision to inspect images.]");
+          textParts.push("\n[Note: An image was attached, but the active model is text-only. Switch to gemini-2.5-flash, gemini-2.0-flash, ollama/llama3.2-vision, or ollama/llava to inspect images.]");
         }
         formatted.push({
           role: msg.role,
@@ -206,19 +209,11 @@ export default async function handler(req, res) {
     }
 
     if (!finalApiKey) {
-      // Graceful cloud provider fallback: if server has GROQ_API_KEY configured, fallback to Groq to keep responses working seamlessly
-      const fallbackGroqKey = (process.env.GROQ_API_KEY || "").trim();
-      if (fallbackGroqKey && resolvedProvider !== "groq") {
-        console.warn(`[RoroGPT API] No API key found for ${providerConfig.name}; gracefully falling back to Groq.`);
-        resolvedProvider = "groq";
-        modelEntry = getModelById("qwen/qwen3.8-27b");
-        providerConfig = PROVIDER_CONFIGS["groq"];
-        finalApiKey = fallbackGroqKey;
-      } else {
-        return res.status(401).json({
-          error: `No server API key found for ${providerConfig.name}. Please configure ${providerConfig.envKeyName} in .env on the server (${providerConfig.keyUrl}) or select an active Groq model (e.g. Qwen 3.8 27B, GPT OSS 120B) or Local Ollama.`
-        });
-      }
+      return res.status(401).json({
+        error: `No API key found for ${providerConfig.name}. Please configure ${providerConfig.envKeyName} in .env on the server (${providerConfig.keyUrl}) or provide your free API key in Settings.`,
+        keyUrl: providerConfig.keyUrl,
+        provider: resolvedProvider
+      });
     }
   }
 
@@ -282,7 +277,7 @@ export default async function handler(req, res) {
           console.warn(`[RoroGPT API] Local Ollama returned status ${upstreamRes.status}; falling back to Groq reasoning model.`);
           resolvedProvider = "groq";
           const isReasoning = targetModel.includes("r1") || targetModel.includes("deepseek");
-          const fallbackModelId = isReasoning ? "openai/gpt-oss-120b" : "qwen/qwen3.8-27b";
+          const fallbackModelId = isReasoning ? GROQ_FALLBACK_REASONING_MODEL : GROQ_FALLBACK_MODEL;
           modelEntry = getModelById(fallbackModelId);
           providerConfig = PROVIDER_CONFIGS["groq"];
           finalApiKey = fallbackGroqKey;
@@ -305,7 +300,7 @@ export default async function handler(req, res) {
         console.warn(`[RoroGPT API] Local Ollama not reachable (${connectErr.message}); falling back to Groq reasoning model.`);
         resolvedProvider = "groq";
         const isReasoning = targetModel.includes("r1") || targetModel.includes("deepseek");
-        const fallbackModelId = isReasoning ? "openai/gpt-oss-120b" : "qwen/qwen3.8-27b";
+        const fallbackModelId = isReasoning ? GROQ_FALLBACK_REASONING_MODEL : GROQ_FALLBACK_MODEL;
         modelEntry = getModelById(fallbackModelId);
         providerConfig = PROVIDER_CONFIGS["groq"];
         finalApiKey = fallbackGroqKey;
@@ -355,7 +350,7 @@ export default async function handler(req, res) {
       if (isAuthError && fallbackGroqKey && (finalApiKey !== fallbackGroqKey || resolvedProvider !== "groq")) {
         console.warn(`[RoroGPT API] Upstream authentication failed for ${resolvedProvider} (${errorMsg}); gracefully falling back to server Groq key.`);
         resolvedProvider = "groq";
-        targetModel = "qwen/qwen3.8-27b";
+        targetModel = GROQ_FALLBACK_MODEL;
         modelEntry = getModelById(targetModel);
         providerConfig = PROVIDER_CONFIGS["groq"];
         finalApiKey = fallbackGroqKey;
@@ -395,7 +390,7 @@ export default async function handler(req, res) {
           !chatFetchAdapter
         ) {
           console.warn(`[RoroGPT API] Groq Qwen token limit reached (${errorMsg}); automatically falling back to GPT OSS 120B.`);
-          const fallbackModelId = "openai/gpt-oss-120b";
+          const fallbackModelId = GROQ_FALLBACK_REASONING_MODEL;
           const retryPayload = { ...payload, model: fallbackModelId };
           const retryRes = await fetchFn(providerConfig.endpoint, {
             method: "POST",

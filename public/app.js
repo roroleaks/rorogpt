@@ -825,13 +825,7 @@ async function fetchModels() {
     const data = await res.json();
     if (data.success && Array.isArray(data.models)) {
       state.models = data.models;
-      if (
-        state.activeModel &&
-        (state.activeModel.startsWith("gemini-") || state.activeModel.startsWith("cerebras/")) &&
-        !state.apiKey
-      ) {
-        selectModel(data.defaultModel || DEFAULT_CHAT_MODEL);
-      }
+      // Preserves user-selected model even before API key is entered
     }
     updateApiKeyBadge(data.hasServerKey);
   } catch {
@@ -1017,14 +1011,15 @@ function isAllowedModel(modelId) {
   const knownPrefixes = ["groq/", "cerebras/", "ollama/", "gemini-", "qwen/", "meta-llama/"];
   const knownModels = [
     defaultChatModel,
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+    "allam-2-7b",
+    "gemini-2.5-flash",
     "gemini-2.0-flash",
-    "gemini-1.5-flash",
-    "cerebras/llama3.1-8b",
+    "llama3.1-70b",
     "cerebras/llama3.1-70b",
-    "cerebras/llama-3.3-70b",
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
-    "deepseek-r1-distill-llama-70b"
+    "qwen3.8-27b",
+    "cerebras/qwen3.8-27b"
   ];
   if (knownModels.includes(trimmed)) return true;
   if (knownPrefixes.some(p => trimmed.startsWith(p))) return true;
@@ -4193,13 +4188,20 @@ async function sendMessage() {
 
     if (!res.ok) {
       let errText = "Failed to generate reply";
+      let errData = null;
       try {
-        const errJson = await res.json();
-        if (errJson?.error) errText = errJson.error;
+        errData = await res.json();
+        if (errData?.error) errText = errData.error;
       } catch {
         errText = await res.text();
       }
-      throw new Error(errText);
+      const chatErr = new Error(errText);
+      if (errData) {
+        chatErr.status = res.status;
+        chatErr.keyUrl = errData.keyUrl;
+        chatErr.provider = errData.provider;
+      }
+      throw chatErr;
     }
 
     const reader = res.body.getReader();
@@ -4287,7 +4289,17 @@ async function sendMessage() {
       botMsg.content = `⚠️ **Error:** ${err.message}`;
       showToast(err.message, "error");
       const lower = (err.message || "").toLowerCase();
-      if (
+      if (err.keyUrl || err.provider || lower.includes("no api key found")) {
+        const provName = err.provider || "selected provider";
+        botMsg.content = `⚠️ **API Key Required:** ${err.message}\n\nPlease enter your free ${provName} key in **Settings ⚙️** (${err.keyUrl || "https://aistudio.google.com/apikey"}) or switch to an active free Groq model.`;
+        if (typeof openSettingsModal === "function") {
+          setTimeout(() => {
+            openSettingsModal();
+            const keyInput = document.getElementById("apiKeyInput");
+            if (keyInput) keyInput.focus();
+          }, 300);
+        }
+      } else if (
         lower.includes("no server api key found") ||
         lower.includes("invalid api key") ||
         lower.includes("invalid_api_key") ||

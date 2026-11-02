@@ -13,11 +13,18 @@ export function applySecurityHeaders(res) {
     "Permissions-Policy",
     "camera=(self), microphone=(self), geolocation=(), interest-cohort=()"
   );
-  // Allow framing from suite and vercel domains while guarding against general clickjacking
-  res.setHeader(
-    "Content-Security-Policy",
-    "frame-ancestors 'self' https://roshdy-med-suite.vercel.app https://*.vercel.app http://localhost:*;"
-  );
+  // Allow framing only from self, first-party domain, and permitted suite deployment
+  const vercelHost = (process.env.VERCEL_URL || "").trim().toLowerCase();
+  const vercelHostFmt = vercelHost ? `https://${vercelHost}` : "";
+  const frameAncestors = [
+    "'self'",
+    "https://rorogpt.uk",
+    "https://*.rorogpt.uk",
+    "https://roshdy-med-suite.vercel.app",
+    vercelHostFmt
+  ].filter(Boolean).join(" ");
+
+  res.setHeader("Content-Security-Policy", `frame-ancestors ${frameAncestors};`);
 }
 
 /**
@@ -197,11 +204,42 @@ export function checkAuth(req, res) {
   }
 
   // If in production and APP_API_TOKEN is NOT configured:
-  // Allow same-origin browser requests from the RoroGPT web app, or requests bringing a client API key.
+  // Allow strict same-origin browser requests from the RoroGPT web app, or requests bringing a client API key.
   const origin = (req.headers["origin"] || "").trim().toLowerCase();
   const host = (req.headers["x-forwarded-host"] || req.headers["host"] || "").trim().toLowerCase();
-  const isSameOrigin = Boolean(host && origin && (origin === `https://${host}` || origin === `http://${host}` || origin.includes(host)));
-  const isAppDomain = origin.includes("rorogpt.uk") || origin.endsWith(".vercel.app");
+
+  // Strict same-origin check: parsed Origin host must equal request Host (port-aware).
+  let isSameOrigin = false;
+  if (host && origin) {
+    try {
+      const originHost = new URL(origin).host.toLowerCase();
+      isSameOrigin = originHost === host.toLowerCase();
+    } catch { /* malformed origin — never same-origin */ }
+  }
+
+  // App-domain allowlist: only the configured deployment domains, never a broad suffix.
+  const configuredOrigins = (process.env.ALLOWED_ORIGINS || "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+  const isAppDomain = configuredOrigins.length > 0 && configuredOrigins.some(allowed => {
+    if (allowed === "*") return true;
+    if (allowed.startsWith("*.")) {
+      const base = allowed.slice(2);
+      try {
+        const origHostname = new URL(origin).hostname.toLowerCase();
+        return origHostname.endsWith("." + base) || origHostname === base;
+      } catch {
+        return false;
+      }
+    }
+    try {
+      const parsedAllowed = new URL(allowed);
+      const parsedOrig = new URL(origin);
+      return parsedOrig.origin.toLowerCase() === parsedAllowed.origin.toLowerCase() ||
+             parsedOrig.href.toLowerCase() === parsedAllowed.href.toLowerCase();
+    } catch {
+      return origin.toLowerCase() === allowed;
+    }
+  });
+
   const hasClientKey = Boolean(
     (req.body && typeof req.body === "object" && req.body.apiKey) ||
     req.headers["x-provider-key"]

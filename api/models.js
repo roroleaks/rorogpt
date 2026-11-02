@@ -112,59 +112,33 @@ export const FREE_MODELS_BY_PROVIDER = {
   ],
   gemini: [
     {
-      id: "gemini-2.0-flash",
-      name: "Gemini 2.0 Flash (Google)",
+      id: "gemini-2.5-flash",
+      name: "Gemini 2.5 Flash (Google)",
       provider: "gemini",
-      speed: "⚡ Sub-second (~0.7s)",
-      badge: "★ Best & 1M Context",
+      speed: "⚡ Sub-second (~0.6s)",
+      badge: "Flagship 1M Multimodal",
       color: "#10b981",
       icon: "⚡",
       context: "1M",
       supportsVision: true,
-      description: "Google's next-gen multimodal model with 1M context. Available on Google AI Studio's free tier where eligible (subject to regional quotas).",
+      description: "Google's flagship multimodal model with adaptive thinking and 1M context. Free on Google AI Studio where eligible.",
       infoUrl: "https://aistudio.google.com/apikey"
     },
     {
-      id: "gemini-1.5-flash",
-      name: "Gemini 1.5 Flash (Google)",
+      id: "gemini-2.0-flash",
+      name: "Gemini 2.0 Flash (Google)",
       provider: "gemini",
-      speed: "⚡ Sub-second (~0.8s)",
-      badge: "Stable 1M",
+      speed: "⚡ Sub-second (~0.7s)",
+      badge: "★ Stable 1M Multimodal",
       color: "#06b6d4",
       icon: "✨",
       context: "1M",
       supportsVision: true,
-      description: "Fast multimodal assistant with large context. Available on Google AI Studio's free tier where eligible.",
+      description: "Google's stable multimodal model with 1M context. Free on Google AI Studio where eligible (Gemini 1.5 Flash was retired Sept 2025).",
       infoUrl: "https://aistudio.google.com/apikey"
     }
   ],
   cerebras: [
-    {
-      id: "llama3.3-70b",
-      name: "Llama 3.3 70B (Cerebras)",
-      provider: "cerebras",
-      speed: "⚡ 1800+ tok/s (~0.2s)",
-      badge: "Ultra-Fast 70B",
-      color: "#8b5cf6",
-      icon: "⚡",
-      context: "128K",
-      supportsVision: false,
-      description: "Meta Llama 3.3 70B running on Cerebras CS-3. Available on Cerebras Cloud free tier where eligible.",
-      infoUrl: "https://cloud.cerebras.ai"
-    },
-    {
-      id: "llama3.1-8b",
-      name: "Llama 3.1 8B (Cerebras)",
-      provider: "cerebras",
-      speed: "🚀 2100+ tok/s (Real-time)",
-      badge: "Fast 8B",
-      color: "#14b8a6",
-      icon: "🚀",
-      context: "128K",
-      supportsVision: false,
-      description: "Lightweight Llama 3.1 8B on Cerebras CS-3. Available on Cerebras Cloud free tier where eligible.",
-      infoUrl: "https://cloud.cerebras.ai"
-    },
     {
       id: "llama3.1-70b",
       name: "Llama 3.1 70B (Cerebras)",
@@ -175,7 +149,20 @@ export const FREE_MODELS_BY_PROVIDER = {
       icon: "⚡",
       context: "128K",
       supportsVision: false,
-      description: "Meta Llama 3.1 70B on Cerebras CS-3. Available on Cerebras Cloud free tier where eligible.",
+      description: "Meta Llama 3.1 70B running on Cerebras CS-3. Available on Cerebras Cloud free tier where eligible.",
+      infoUrl: "https://cloud.cerebras.ai"
+    },
+    {
+      id: "qwen3.8-27b",
+      name: "Qwen 3.8 27B (Cerebras)",
+      provider: "cerebras",
+      speed: "🚀 2000+ tok/s (~0.2s)",
+      badge: "Ultra-Fast 27B",
+      color: "#14b8a6",
+      icon: "🚀",
+      context: "128K",
+      supportsVision: false,
+      description: "Alibaba Qwen 3.8 27B on Cerebras CS-3 (recommended migration target for retired llama3.3-70b and gemma-4-31b). Available on Cerebras Cloud free tier.",
       infoUrl: "https://cloud.cerebras.ai"
     }
   ],
@@ -250,7 +237,7 @@ export function getModelById(modelId) {
   const exact = ALL_MODELS.find(m => m.id === trimmed);
   if (exact) return exact;
 
-  // Cerebras prefix alias (e.g. cerebras/llama3.3-70b -> llama3.3-70b)
+  // Cerebras prefix alias (e.g. cerebras/llama3.1-70b -> llama3.1-70b)
   if (trimmed.startsWith("cerebras/")) {
     const rawTag = trimmed.replace("cerebras/", "");
     const baseMatch = ALL_MODELS.find(m => m.provider === "cerebras" && m.id === rawTag);

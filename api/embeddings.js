@@ -1,18 +1,30 @@
-// 100% Free Semantic Similarity & Vector Calculator (Zero Paid Credits Required)
+// 100% Free Lexical & Local Semantic Embeddings Calculator (Zero Paid Credits Required)
 import { handleCors } from "./_security.js";
 
 export const CURATED_EMBEDDING_MODELS = [
   {
-    id: "free-fast-vector",
-    name: "Roro Fast Semantic Embeddings (100% Free)",
+    id: "free-lexical-vector",
+    name: "Roro Fast Lexical Embeddings (100% Free)",
     dimensions: 256,
-    description: "Built-in local semantic vector model. Instant computation with zero API cost or credit requirement."
+    description: "Built-in local lexical (TF-IDF + character n-gram) vector model. Instant computation with zero API cost."
+  },
+  {
+    id: "free-fast-vector", // Backward-compatible alias for free-lexical-vector
+    name: "Roro Fast Lexical Embeddings (100% Free)",
+    dimensions: 256,
+    description: "Built-in local lexical (TF-IDF + character n-gram) vector model. Instant computation with zero API cost."
   },
   {
     id: "free-multilingual-ngram",
     name: "Roro Multilingual Vector Embeddings (100% Free)",
     dimensions: 512,
     description: "Subword character n-gram cosine model supporting 50+ languages with zero cost."
+  },
+  {
+    id: "free-ollama-embed",
+    name: "Ollama nomic-embed-text (Local Semantic)",
+    dimensions: 768,
+    description: "Local semantic embedding model powered by nomic-embed-text via Ollama. 100% private, free, and runs on your local machine."
   }
 ];
 
@@ -76,9 +88,10 @@ export default async function handler(req, res) {
     }
   }
 
-  const { input, model = "free-fast-vector" } = body || {};
+  const { input, model = "free-lexical-vector" } = body || {};
 
-  const selectedModel = CURATED_EMBEDDING_MODELS.find(m => m.id === model);
+  // Support resolving free-fast-vector as alias to free-lexical-vector
+  const selectedModel = CURATED_EMBEDDING_MODELS.find(m => m.id === model || (model === "free-fast-vector" && m.id === "free-fast-vector"));
   if (!selectedModel) {
     return res.status(400).json({
       error: `Unsupported embedding model '${model}'. Supported models: ${CURATED_EMBEDDING_MODELS.map(m => m.id).join(", ")}.`
@@ -121,6 +134,36 @@ export default async function handler(req, res) {
   }
 
   const inputs = Array.isArray(input) ? input : [input];
+
+  // If local Ollama semantic embedding model requested, lazily proxy or return 503 if unreachable
+  if (selectedModel.id === "free-ollama-embed") {
+    const ollamaBase = (process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434").replace(/\/+$/, "");
+    try {
+      const ollamaRes = await fetch(`${ollamaBase}/v1/embeddings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "nomic-embed-text", input: inputs })
+      });
+      if (!ollamaRes.ok) {
+        return res.status(503).json({
+          error: "Ollama not reachable or nomic-embed-text model not pulled. Ensure Ollama is running locally with 'ollama run nomic-embed-text'."
+        });
+      }
+      const ollamaData = await ollamaRes.json();
+      return res.status(200).json({
+        success: true,
+        model: selectedModel.id,
+        dimensions: selectedModel.dimensions,
+        data: ollamaData.data,
+        usage: ollamaData.usage || { prompt_tokens: inputs.reduce((acc, t) => acc + t.length, 0), total_tokens: 0 }
+      });
+    } catch {
+      return res.status(503).json({
+        error: "Ollama not reachable. Ensure Ollama is running locally with 'ollama run nomic-embed-text'."
+      });
+    }
+  }
+
   const dims = selectedModel.dimensions;
 
   // Compute free local embeddings without external API dependencies or paid credits

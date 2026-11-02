@@ -21,6 +21,8 @@ This document outlines the required workflows and quality gates for every change
 ---
 
 ## 3. Snapshot ZIP Archive Update
+> **Maintainer-only workflow** — contributors do not need to perform this step.
+
 - After implementing and verifying any change, create and overwrite the snapshot ZIP files on the user's PC:
   - `C:\Users\raouf.RAOUFDESKTOP\Desktop\rorogpt-snapshot.zip`
   - `C:\Users\raouf.RAOUFDESKTOP\Downloads\rorogpt-snapshot.zip`

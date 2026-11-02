@@ -25,27 +25,31 @@ RoroGPT supports four distinct free-access options:
   - `qwen/qwen3.8-27b`: Fast and capable 27B model on Groq LPUs.
   - `openai/gpt-oss-120b`: Flagship 120B reasoning model with 131K context.
   - `openai/gpt-oss-20b`: Fast 20B model for coding and concise answers.
-  - `deepseek-r1-distill-llama-70b`: Deep reasoning with chain-of-thought.
   - `allam-2-7b`: 7B Arabic/English bilingual model.
+- **Configurable Fallbacks**: If upstream rate limits are encountered, fallback models can be configured via `GROQ_FALLBACK_MODEL` (default: `qwen/qwen3.8-27b`) and `GROQ_FALLBACK_REASONING_MODEL` (default: `openai/gpt-oss-120b`).
 - **Get Free Key**: [console.groq.com/keys](https://console.groq.com/keys) (Groq developer tier account required).
 
 ### 2. 🌟 Google Gemini (Google AI Studio Free Tier)
 - **Status**: Available on Google AI Studio's free tier where eligible (subject to regional availability and quota policies).
-- **Models**: `gemini-2.0-flash`, `gemini-2.0-flash-lite`, `gemini-1.5-pro` with large context windows.
+- **Models**:
+  - `gemini-2.5-flash`: Google's flagship multimodal model with adaptive thinking and 1M context.
+  - `gemini-2.0-flash`: Google's stable multimodal model with 1M context (Gemini 1.5 Flash was retired Sept 2025).
 - **Get Free Key**: [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
 
 ### 3. 🚀 Cerebras Cloud (Developer Free Tier)
 - **Status**: Available on Cerebras Cloud free tier where eligible (subject to Cerebras rate limits and terms).
 - **Performance**: 1800+ tokens/second inference on CS-3 wafer-scale engines.
-- **Models**: `cerebras/llama3.1-70b`, `cerebras/llama3.1-8b`.
+- **Models**:
+  - `llama3.1-70b`: Meta Llama 3.1 70B on Cerebras CS-3.
+  - `qwen3.8-27b`: Alibaba Qwen 3.8 27B on Cerebras CS-3 (recommended migration target for retired llama3.3-70b and gemma-4-31b).
 - **Get Free Key**: [cloud.cerebras.ai](https://cloud.cerebras.ai).
 
 ### 4. 💻 Local Ollama (100% Offline & Private)
 - **Status**: Completely free and runs locally on your PC hardware.
 - **Keys**: **Zero API keys needed**. No cloud data sharing or payment accounts.
-- **Setup**: Install [Ollama](https://ollama.com) on your machine. Start Ollama and pull any model (e.g. `ollama run llama3.2`).
+- **Setup**: Install [Ollama](https://ollama.com) on your machine. Start Ollama and pull any model (e.g. `ollama run llama3.2-vision`).
 - **Default Endpoint**: `http://127.0.0.1:11434`. Configurable via `OLLAMA_BASE_URL`.
-- **Models**: `ollama/llama3.2`, `ollama/mistral`, `ollama/qwen2.5-coder`, `ollama/deepseek-r1`.
+- **Models**: `ollama/llama3.2-vision`, `ollama/llava`, `ollama/llama3`, `ollama/deepseek-r1`, and any locally installed model.
 
 > **Note on Free Tiers**: Third-party cloud free tiers (Groq, Gemini, Cerebras) are governed by their respective providers' usage quotas, regional eligibility, and terms of service. Local Ollama operates entirely on your hardware with zero API keys or limits.
 
@@ -64,11 +68,12 @@ RoroGPT supports four distinct free-access options:
 
 ## 🎨 Vibrant Themes & UI
 
-- 🌈 **Neon Aurora** *(Default)*: Deep obsidian with glowing neon pink, electric violet, cyan, and lime accents.
-- 🌅 **Sunset Ember**: Warm crimson, coral, amber, and gold.
-- 🌊 **Cyber Ocean**: Bioluminescent electric teal and cobalt blue.
+- ☀️ **Clean Daylight** *(Default)*: Crisp daylight light theme with gentle contrast and clear readability.
+- 🌈 **Neon Aurora**: Deep obsidian with glowing neon pink, electric violet, cyan, and lime accents.
+- 🌅 **Sunset Glow**: Warm crimson, coral, amber, and gold.
+- 🌊 **Cyber Teal**: Bioluminescent electric teal and cobalt blue.
 - 🍇 **Cosmic Violet**: Deep space galactic nebula with vivid amethyst and magenta.
-- 🍭 **Candy Pop**: High-contrast, colorful daylight mode.
+- 🌲 **Emerald Matrix**: High-contrast cyberpunk terminal matrix theme in deep emerald green.
 
 ---
 
@@ -82,7 +87,7 @@ Open **[http://localhost:3000](http://localhost:3000)** in your browser!
 
 ### 2. Add Your Free API Key
 - Click **Settings ⚙️** inside the web app.
-- Paste your 100% Free Groq key (`gsk_...`) or Gemini key (`AIza...`).
+- Paste your 100% Free Groq key (`gsk_...`), Gemini key (`AIza...`), or Cerebras key (`csk-...`).
 - It saves securely in your browser's localStorage!
 
 ---
@@ -124,7 +129,7 @@ All responses automatically include:
 - `X-Content-Type-Options: nosniff`
 - `Referrer-Policy: strict-origin-when-cross-origin`
 - `Permissions-Policy: camera=(self), microphone=(self), geolocation=(), interest-cohort=()`
-- `X-Frame-Options: SAMEORIGIN`
+- **Content-Security-Policy `frame-ancestors`**: `'self' https://rorogpt.uk https://*.rorogpt.uk https://roshdy-med-suite.vercel.app` (plus the configured `VERCEL_URL` when deployed). All other origins are blocked from framing the app, mitigating clickjacking.
 
 ### 5. Incremental Streaming URL Retrieval Guard (`/api/fetch-url`)
 - **Pre-check `Content-Length`**: Rejects responses advertising sizes > 1.5 MB immediately with HTTP 413 before reading the body.
@@ -156,7 +161,7 @@ npm test
 - **Upstream Chat Provider Mocking & SSE**: Tests multi-chunk OpenAI-compatible SSE streaming, reasoning deltas (`delta.reasoning` / `delta.reasoning_content`), normal content deltas, `[DONE]` termination, provider errors (JSON and plain-text), final partial chunks without trailing newlines, and client-side cancellation.
 - **Native Server & Routing Integrity**: Verifies `GET /`, MIME types for static assets (`.html`, `.css`, `.js`, `.svg`, `.jpg`), SPA route fallback, 404 behavior on missing static files, unsupported HTTP method errors (405), malformed request body handling, and 2 MB request-body limits (413).
 - **Free-Only Catalog & Provider Policy**: Validates that only approved free-tier providers (`groq`, `gemini`, `cerebras`, `ollama`) are advertised. Rejects OpenRouter, `:free` suffixes, and uncataloged models. Ensures all model notices carry terms and quota caveats.
-- **Semantic Vector Embeddings**: Validates `free-fast-vector` (256 dimensions) and `free-multilingual-ngram` (512 dimensions) vector generation, batch arrays, null/empty/mixed-type input rejection (HTTP 400), and crash-resilient error recovery.
+- **Lexical & Local Semantic Vector Embeddings**: Validates `free-lexical-vector` / `free-fast-vector` (256 dimensions) and `free-multilingual-ngram` (512 dimensions) local vector generation, plus local Ollama semantic embeddings (`free-ollama-embed`), batch arrays, null/empty/mixed-type input rejection (HTTP 400), and crash-resilient error recovery.
 - **SSRF & DNS-Rebinding Hardening**: Tests manual redirect tracking (5 hops), redirect loop prevention, and socket peer validation blocking localhost, private subnets (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16), IPv6 loopback (`[::1]`), and cloud metadata (`169.254.169.254`).
 - **Client-Side Markdown & XSS Defense**: Verifies DOMPurify sanitization stripping executable scripts, malicious event handlers (`onerror`, `onload`), dangerous URI schemes (`javascript:`, `vbscript:`, `data:`), KaTeX formula safety, and safe link formatting.
 - **Safe innerHTML & Attachment Storage**: Verifies safe DOM node generation, IndexedDB binary storage for image attachments outside `localStorage`, quota error recovery, and consistent model metadata attribution across chat exports (`.md` and `.json`).
