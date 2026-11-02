@@ -365,7 +365,7 @@ async function runTests() {
     const secHeadersRes = await fetch(`${baseUrl}/api/models`);
     assert(secHeadersRes.headers.get("x-content-type-options") === "nosniff", "Safe security header: X-Content-Type-Options: nosniff present");
     assert(secHeadersRes.headers.get("referrer-policy") === "strict-origin-when-cross-origin", "Safe security header: Referrer-Policy present");
-    assert(secHeadersRes.headers.get("x-frame-options") === "SAMEORIGIN", "Safe security header: X-Frame-Options: SAMEORIGIN present");
+    assert(secHeadersRes.headers.has("content-security-policy"), "Safe security header: Content-Security-Policy present");
     assert(secHeadersRes.headers.has("permissions-policy"), "Safe security header: Permissions-Policy present");
 
     // 7.2 Local Development Mode (unauthenticated allowed)

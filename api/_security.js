@@ -13,7 +13,11 @@ export function applySecurityHeaders(res) {
     "Permissions-Policy",
     "camera=(self), microphone=(self), geolocation=(), interest-cohort=()"
   );
-  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  // Allow framing from suite and vercel domains while guarding against general clickjacking
+  res.setHeader(
+    "Content-Security-Policy",
+    "frame-ancestors 'self' https://roshdy-med-suite.vercel.app https://*.vercel.app http://localhost:*;"
+  );
 }
 
 /**
